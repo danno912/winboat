@@ -269,14 +269,46 @@ export class DesktopIntegration {
         const iconPath = path.join(this.ICONS_DIR, iconFileName);
         
         try {
-            // Convert base64 icon to binary and save
+            // Convert base64 icon to binary
             const iconBuffer = Buffer.from(app.Icon, 'base64');
-            fs.writeFileSync(iconPath, iconBuffer);
+            
+            // Use JIMP to load, scale, and optimize the icon
+            const { Jimp, ResizeStrategy } = require('jimp');
+            const image = await Jimp.fromBuffer(iconBuffer);
+            
+            // Get current dimensions
+            const width = image.width;
+            const height = image.height;
+            
+            // Define target size for desktop icons (64x64 is good for most desktop environments)
+            const targetSize = 64;
+            
+            // Only upscale if the image is smaller than target size
+            if (width < targetSize || height < targetSize) {
+                // Scale using bicubic for better quality when upscaling
+                image.resize({ w: targetSize, h: targetSize, mode: ResizeStrategy.BICUBIC });
+            } else if (width !== height) {
+                // If not square, make it square by cropping/resizing to the smaller dimension
+                const size = Math.min(width, height);
+                image.resize({ w: size, h: size, mode: ResizeStrategy.BICUBIC });
+            }
+            
+            // Save the processed icon
+            await image.write(iconPath);
+            
             return iconPath;
         } catch (error) {
             logger.warn(`Failed to save icon for ${app.Name}, using default:`, error);
-            // Return a default icon path or empty string
-            return '';
+            
+            // Try to save the original icon without processing as fallback
+            try {
+                const iconBuffer = Buffer.from(app.Icon, 'base64');
+                fs.writeFileSync(iconPath, iconBuffer);
+                return iconPath;
+            } catch (fallbackError) {
+                logger.error(`Failed to save even unprocessed icon for ${app.Name}:`, fallbackError);
+                return '';
+            }
         }
     }
     

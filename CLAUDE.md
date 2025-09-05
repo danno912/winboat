@@ -111,6 +111,7 @@ WinBoat includes a comprehensive Linux desktop integration system that allows Wi
 - **UI controls** (`src/renderer/views/Apps.vue`): Context menus and cleanup interface
 - **Cleanup script** (`cleanup-desktop-integration.js`): Standalone system cleanup utility
 - **FreeRDP wm-class handling** (`src/renderer/lib/winboat.ts`): Proper window class naming for X11 compatibility
+- **WinBoat launcher script** (`~/.local/bin/winboat-launcher`): WinApps-inspired direct FreeRDP launcher for desktop entries
 
 ### App Groups and Visibility Management
 
@@ -127,3 +128,4 @@ WinBoat includes a comprehensive Linux desktop integration system that allows Wi
 - App usage tracking stored in `~/.winboat/appUsage.json`
 - Logging to `~/.winboat/winboat.log`
 - Desktop integration state tracked in reactive Vue refs for real-time UI updates
+- Production desktop shortcuts use direct FreeRDP launching (inspired by WinApps architecture) to bypass Electron AppImage sandbox limitations

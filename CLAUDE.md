@@ -129,7 +129,8 @@ WinBoat includes a comprehensive Linux desktop integration system that allows Wi
 - Logging to `~/.winboat/winboat.log`
 - Desktop integration state tracked in reactive Vue refs for real-time UI updates
 - Production desktop shortcuts use direct FreeRDP launching (inspired by WinApps architecture) to bypass Electron AppImage sandbox limitations
-- **Unified launcher approach**: Both development and production desktop entries now use the WinBoat launcher script (`~/.local/bin/winboat-launcher`) for consistency and reliability
-- **Secure credential handling**: The launcher script reads RDP credentials dynamically from user's WinBoat configuration files (docker-compose.yml and winboat.config.json), ensuring no hardcoded credentials in the codebase
-- **Auto-installation system**: WinBoat automatically creates/updates the launcher script when desktop entries are created, requiring no manual setup from users
-- **WinApps-inspired reliability**: Robust error handling, pre-flight checks, and user notifications ensure stable desktop integration suitable for production distribution
+- **Per-app wrapper scripts**: Each Windows app gets its own dedicated wrapper script in `~/.local/bin/winboat-apps/winboat-{app-name}` containing the complete FreeRDP command
+- **Clean desktop entries**: Desktop entries use simple `Exec=/path/to/wrapper` avoiding complex quoting and parsing issues with desktop environments
+- **Secure credential handling**: Wrapper scripts read RDP credentials dynamically from user's WinBoat configuration files at creation time, ensuring no hardcoded credentials in the codebase
+- **Complete cleanup system**: System cleanup removes all desktop entries, icon files, and wrapper scripts, ensuring no leftover traces when uninstalling
+- **Production ready**: Ultra-simple approach works reliably across all desktop environments and is suitable for AppImage distribution

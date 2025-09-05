@@ -18,8 +18,6 @@ export class DesktopIntegration {
             // Ensure directories exist
             await this.ensureDirectoriesExist();
             
-            // Ensure launcher script is installed and up-to-date
-            await this.ensureLauncherScript();
             
             // Generate safe filename
             const safeAppName = this.sanitizeFileName(app.Name);
@@ -168,6 +166,48 @@ export class DesktopIntegration {
             logger.warn(errorMsg);
             errors.push(errorMsg);
             iconCleanupError = true;
+        }
+
+        // Clean up wrapper scripts directory
+        try {
+            const os: typeof import('os') = require('os');
+            const path: typeof import('path') = require('path');
+            const wrapperDir = path.join(os.homedir(), '.local', 'bin', 'winboat-apps');
+            
+            if (fs.existsSync(wrapperDir)) {
+                const wrapperFiles = fs.readdirSync(wrapperDir);
+                let wrapperCount = 0;
+                
+                for (const wrapperFile of wrapperFiles) {
+                    if (wrapperFile.startsWith('winboat-')) {
+                        try {
+                            fs.unlinkSync(path.join(wrapperDir, wrapperFile));
+                            wrapperCount++;
+                        } catch (error) {
+                            const errorMsg = `Failed to remove wrapper script ${wrapperFile}: ${error}`;
+                            logger.warn(errorMsg);
+                            errors.push(errorMsg);
+                        }
+                    }
+                }
+                
+                // Try to remove the directory if it's empty
+                try {
+                    const remainingFiles = fs.readdirSync(wrapperDir);
+                    if (remainingFiles.length === 0) {
+                        fs.rmdirSync(wrapperDir);
+                        logger.info('Removed WinBoat wrapper scripts directory');
+                    }
+                } catch (error) {
+                    logger.warn('Could not remove wrapper scripts directory:', error);
+                }
+                
+                logger.info(`Cleaned up ${wrapperCount} wrapper script files`);
+            }
+        } catch (error) {
+            const errorMsg = `Failed to clean up wrapper scripts directory: ${error}`;
+            logger.warn(errorMsg);
+            errors.push(errorMsg);
         }
         
         // Update desktop database after cleanup
@@ -382,18 +422,113 @@ main "\$1"`;
     }
 
     /**
+     * Gets RDP credentials from WinBoat compose file
+     */
+    private static getRdpCredentials(): { username: string; password: string } {
+        try {
+            const os: typeof import('os') = require('os');
+            const path: typeof import('path') = require('path');
+            const yaml: typeof import('yaml') = require('yaml');
+            
+            const composePath = path.join(os.homedir(), '.winboat', 'docker-compose.yml');
+            const composeContent = fs.readFileSync(composePath, 'utf8');
+            const composeData = yaml.parse(composeContent);
+            
+            const username = composeData.services.windows.environment.USERNAME;
+            const password = composeData.services.windows.environment.PASSWORD;
+            
+            return { username, password };
+        } catch (error) {
+            logger.warn('Failed to read RDP credentials, using defaults:', error);
+            return { username: 'user', password: 'password' };
+        }
+    }
+
+    /**
+     * Gets RDP scale from WinBoat config
+     */
+    private static getRdpScale(): number {
+        try {
+            const os: typeof import('os') = require('os');
+            const path: typeof import('path') = require('path');
+            
+            const configPath = path.join(os.homedir(), '.winboat', 'winboat.config.json');
+            const configContent = fs.readFileSync(configPath, 'utf8');
+            const config = JSON.parse(configContent);
+            
+            return config.scale || 100;
+        } catch (error) {
+            logger.warn('Failed to read RDP scale, using default 100:', error);
+            return 100;
+        }
+    }
+
+    /**
+     * Creates a simple wrapper script for a specific app
+     */
+    private static createAppWrapper(app: WinApp): string {
+        try {
+            const os: typeof import('os') = require('os');
+            const path: typeof import('path') = require('path');
+            
+            // Get RDP credentials and settings
+            const { username, password } = this.getRdpCredentials();
+            const scale = this.getRdpScale();
+            
+            // Create wrapper script directory
+            const wrapperDir = path.join(os.homedir(), '.local', 'bin', 'winboat-apps');
+            if (!fs.existsSync(wrapperDir)) {
+                fs.mkdirSync(wrapperDir, { recursive: true });
+            }
+            
+            // Generate safe filename for wrapper
+            const safeAppName = this.sanitizeFileName(app.Name);
+            const wrapperPath = path.join(wrapperDir, `winboat-${safeAppName}`);
+            
+            // Generate safe app name for wm-class
+            const appName = app.Name.replace(/\s+/g, '_');
+            
+            // Create wrapper script content
+            const wrapperContent = `#!/bin/bash
+# WinBoat wrapper script for ${app.Name}
+xfreerdp3 \\
+    /u:"${username}" \\
+    /p:"${password}" \\
+    /v:127.0.0.1 \\
+    /cert:ignore \\
+    +clipboard \\
+    -wallpaper \\
+    /sound:sys:pulse \\
+    /microphone:sys:pulse \\
+    /floatbar \\
+    /compression \\
+    /scale:${scale} \\
+    +auto-reconnect \\
+    /wm-class:"${appName}" \\
+    /app:program:"${app.Path}",name:"${app.Name}" &
+`;
+            
+            // Write and make executable
+            fs.writeFileSync(wrapperPath, wrapperContent, 'utf8');
+            fs.chmodSync(wrapperPath, 0o755);
+            
+            logger.info(`Created app wrapper script: ${wrapperPath}`);
+            return wrapperPath;
+            
+        } catch (error) {
+            logger.error(`Failed to create app wrapper for ${app.Name}:`, error);
+            // Fallback to direct xfreerdp
+            return 'xfreerdp3';
+        }
+    }
+
+    /**
      * Gets the appropriate executable path for desktop entries
-     * Uses the WinApps-inspired direct launcher script for both dev and production
+     * Simple approach: just use a direct xfreerdp command
      */
     private static getDefaultExecutablePath(): string {
-        const os: typeof import('os') = require('os');
-        const path: typeof import('path') = require('path');
-        
-        // Use the launcher script for both dev and production
-        // This bypasses Electron entirely and launches apps directly via FreeRDP
-        const launcherPath = path.join(os.homedir(), '.local', 'bin', 'winboat-launcher');
-        
-        return launcherPath;
+        // Use xfreerdp3 directly - simplest approach
+        return 'xfreerdp3';
     }
     
     
@@ -484,12 +619,14 @@ main "\$1"`;
         // Determine appropriate category based on app name/path
         const category = this.determineCategory(app);
         
-        // Use the launcher script directly without NODE_ENV since it bypasses Electron
+        // Create a simple wrapper script for this specific app
+        const wrapperPath = this.createAppWrapper(app);
+        
         return `[Desktop Entry]
 Type=Application
 Name=${app.Name}
 Comment=Launch ${app.Name} via WinBoat
-Exec=${execPath} --launch-app="${app.Path}"
+Exec=${wrapperPath}
 Icon=${iconPath}
 Terminal=false
 Categories=${category};

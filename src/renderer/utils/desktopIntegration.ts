@@ -18,6 +18,9 @@ export class DesktopIntegration {
             // Ensure directories exist
             await this.ensureDirectoriesExist();
             
+            // Ensure launcher script is installed and up-to-date
+            await this.ensureLauncherScript();
+            
             // Generate safe filename
             const safeAppName = this.sanitizeFileName(app.Name);
             const desktopFileName = `winboat-${safeAppName}.desktop`;
@@ -180,6 +183,204 @@ export class DesktopIntegration {
         return result;
     }
     
+    /**
+     * Ensures the WinBoat launcher script is installed and up-to-date
+     */
+    static async ensureLauncherScript(): Promise<boolean> {
+        try {
+            const os: typeof import('os') = require('os');
+            const path: typeof import('path') = require('path');
+            
+            const binDir = path.join(os.homedir(), '.local', 'bin');
+            const launcherPath = path.join(binDir, 'winboat-launcher');
+            
+            // Ensure the bin directory exists
+            if (!fs.existsSync(binDir)) {
+                fs.mkdirSync(binDir, { recursive: true });
+                logger.info(`Created directory: ${binDir}`);
+            }
+
+            // Check if launcher script already exists and is executable
+            if (fs.existsSync(launcherPath)) {
+                const stats = fs.statSync(launcherPath);
+                if (stats.mode & 0o755) {
+                    logger.info('WinBoat launcher script already exists and is executable');
+                    return true;
+                }
+            }
+
+            // Create/update the launcher script
+            const launcherScript = this.getLauncherScriptContent();
+            fs.writeFileSync(launcherPath, launcherScript, 'utf8');
+            fs.chmodSync(launcherPath, 0o755);
+            
+            logger.info(`Created/updated WinBoat launcher script at ${launcherPath}`);
+            return true;
+            
+        } catch (error) {
+            logger.error('Failed to ensure launcher script:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Gets the launcher script content
+     */
+    private static getLauncherScriptContent(): string {
+        return `#!/bin/bash
+# WinBoat launcher script for desktop entries
+# This wrapper handles launching Windows apps through FreeRDP directly (inspired by WinApps)
+
+set -euo pipefail
+
+# Constants
+readonly WINBOAT_CONFIG="\${HOME}/.winboat/docker-compose.yml"
+readonly WINBOAT_JSON_CONFIG="\${HOME}/.winboat/winboat.config.json"
+
+# Error codes
+readonly EC_MISSING_CONFIG=1
+readonly EC_MISSING_FREERDP=2
+readonly EC_NO_CONTAINER=3
+readonly EC_INVALID_APP=4
+
+# Functions
+function log_error() {
+    echo "ERROR: \$*" >&2
+}
+
+function log_info() {
+    echo "INFO: \$*"
+}
+
+function show_notification() {
+    local title="\$1"
+    local message="\$2"
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "\$title" "\$message"
+    fi
+}
+
+function parse_compose_credentials() {
+    if [[ ! -f "\$WINBOAT_CONFIG" ]]; then
+        log_error "WinBoat compose configuration not found at \$WINBOAT_CONFIG"
+        show_notification "WinBoat Error" "WinBoat is not configured. Please run WinBoat first."
+        exit \$EC_MISSING_CONFIG
+    fi
+
+    # Extract USERNAME and PASSWORD from docker-compose.yml
+    RDP_USER=\$(grep -A 20 "environment:" "\$WINBOAT_CONFIG" | grep "USERNAME:" | sed 's/.*USERNAME: *"\\?\\([^"]*\\)"\\?.*/\\1/' | head -1)
+    RDP_PASS=\$(grep -A 20 "environment:" "\$WINBOAT_CONFIG" | grep "PASSWORD:" | sed 's/.*PASSWORD: *"\\?\\([^"]*\\)"\\?.*/\\1/' | head -1)
+
+    if [[ -z "\$RDP_USER" || -z "\$RDP_PASS" ]]; then
+        log_error "Could not extract RDP credentials from compose file"
+        show_notification "WinBoat Error" "Invalid WinBoat configuration"
+        exit \$EC_MISSING_CONFIG
+    fi
+}
+
+function get_rdp_scale() {
+    # Get scale from WinBoat JSON config, default to 100
+    if [[ -f "\$WINBOAT_JSON_CONFIG" ]] && command -v jq >/dev/null 2>&1; then
+        jq -r '.scale // 100' "\$WINBOAT_JSON_CONFIG" 2>/dev/null || echo "100"
+    else
+        echo "100"
+    fi
+}
+
+function check_freerdp() {
+    if ! command -v xfreerdp3 >/dev/null 2>&1; then
+        log_error "FreeRDP 3 (xfreerdp3) not found. Please install FreeRDP."
+        show_notification "WinBoat Error" "FreeRDP is not installed"
+        exit \$EC_MISSING_FREERDP
+    fi
+}
+
+function check_container() {
+    if ! docker ps --format "table {{.Names}}" 2>/dev/null | grep -q "^WinBoat\$"; then
+        log_error "WinBoat container is not running"
+        show_notification "WinBoat Error" "Windows container is not running. Please start WinBoat first."
+        exit \$EC_NO_CONTAINER
+    fi
+}
+
+function launch_app() {
+    local app_path="\$1"
+    
+    # Validate app path
+    if [[ -z "\$app_path" ]]; then
+        log_error "No application path specified"
+        show_notification "WinBoat Error" "Invalid application path"
+        exit \$EC_INVALID_APP
+    fi
+
+    # Extract app name for wm-class (remove path and .exe extension)
+    local app_name="\${app_path##*\\\\\\\\}"  # Remove everything before last backslash
+    app_name="\${app_name%.*}"            # Remove file extension
+    app_name="\${app_name// /_}"          # Replace spaces with underscores for X11
+
+    log_info "Launching: \$app_path"
+    log_info "App name: \$app_name"
+    log_info "RDP User: \$RDP_USER"
+    log_info "RDP Scale: \$RDP_SCALE"
+
+    # Launch app using FreeRDP (WinApps style)
+    xfreerdp3 \\
+        /u:"\$RDP_USER" \\
+        /p:"\$RDP_PASS" \\
+        /v:"127.0.0.1" \\
+        /cert:ignore \\
+        +clipboard \\
+        -wallpaper \\
+        /sound:sys:pulse \\
+        /microphone:sys:pulse \\
+        /floatbar \\
+        /compression \\
+        /scale:"\$RDP_SCALE" \\
+        +auto-reconnect \\
+        /wm-class:"\$app_name" \\
+        /app:program:"\$app_path",name:"\$app_name" &
+
+    local freerdp_pid=\$!
+    log_info "Started FreeRDP with PID: \$freerdp_pid"
+    
+    # Optional: wait for process completion (commented out for background execution)
+    # wait \$freerdp_pid
+}
+
+# Main execution
+function main() {
+    local app_path="\$1"
+
+    # Handle --launch-app= format
+    if [[ "\$app_path" == --launch-app=* ]]; then
+        app_path="\${app_path#--launch-app=}"  # Remove --launch-app= prefix
+        app_path="\${app_path//\\"/}"           # Remove quotes
+    fi
+
+    # Parse configuration
+    parse_compose_credentials
+    
+    # Get RDP scale from JSON config
+    RDP_SCALE=\$(get_rdp_scale)
+
+    # Perform pre-flight checks
+    check_freerdp
+    check_container
+
+    # Launch the application
+    launch_app "\$app_path"
+}
+
+# Entry point
+if [[ \$# -eq 0 ]]; then
+    log_error "Usage: \$0 <app_path> or \$0 --launch-app=\\"<app_path>\\""
+    log_error "Example: \$0 \\"C:\\\\Program Files\\\\Microsoft Office\\\\Root\\\\Office16\\\\OUTLOOK.EXE\\""
+    exit \$EC_INVALID_APP
+fi
+
+main "\$1"`;
+    }
+
     /**
      * Gets the appropriate executable path for desktop entries
      * Uses the WinApps-inspired direct launcher script for both dev and production

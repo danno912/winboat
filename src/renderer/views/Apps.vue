@@ -374,9 +374,13 @@ async function removeCustomApp(app: WinApp) {
  * Toggle app visibility (hide/show)
  */
 async function toggleAppVisibility(app: WinApp) {
-    winboat.appMgr!.toggleAppVisibility(app);
-    // Refresh apps to get updated state
-    apps.value = await winboat.appMgr!.getApps();
+    const newHiddenState = winboat.appMgr!.toggleAppVisibility(app);
+    
+    // Update the app in the reactive array immediately
+    const appIndex = apps.value.findIndex(a => a.Path === app.Path);
+    if (appIndex !== -1) {
+        apps.value[appIndex].Hidden = newHiddenState;
+    }
 }
 
 /**

@@ -28,14 +28,18 @@ const presetApps: WinApp[] = [
         Icon: AppIcons[InternalApps.WINDOWS_DESKTOP],
         Source: "internal",
         Path: InternalApps.WINDOWS_DESKTOP,
-        Usage: 0 
+        Usage: 0,
+        Hidden: false,
+        GroupId: null
     },
     {
         Name: "⚙️ Windows Explorer",
         Icon: AppIcons[InternalApps.WINDOWS_EXPLORER],
         Source: "internal",
         Path: "%windir%\\explorer.exe",
-        Usage: 0
+        Usage: 0,
+        Hidden: false,
+        GroupId: null
     }
 ]
 
@@ -69,11 +73,19 @@ class AppManager {
         newApps.push(...presetApps);
         newApps.push(...this.#wbConfig!.config.customApps);
 
-        if(this.appCache.values.length == newApps.length && !options.forceRead) return
+        if(this.appCache.length == newApps.length && !options.forceRead) return
 
         for(const appIdx in newApps) {
-            newApps[appIdx].Usage = this.appCache.find((app) => app.Name == newApps[appIdx].Name)?.Usage || 0;
-            this.appUsageCache[newApps[appIdx].Name] = newApps[appIdx].Usage;
+            const app = newApps[appIdx];
+            // Preserve usage count
+            app.Usage = this.appCache.find((cachedApp) => cachedApp.Name == app.Name)?.Usage || 0;
+            this.appUsageCache[app.Name] = app.Usage;
+            
+            // Set hidden state from config
+            app.Hidden = this.#wbConfig!.isAppHidden(app.Path);
+            
+            // Set group ID from config
+            app.GroupId = this.#wbConfig!.config.appGroupMappings[app.Path] || null;
         }
 
         this.appCache = newApps;
@@ -131,7 +143,9 @@ class AppManager {
             Path: path,
             Icon: icon,
             Source: "custom",
-            Usage: 0
+            Usage: 0,
+            Hidden: false,
+            GroupId: null
         }
         this.appCache.push(customWinApp);
         this.appUsageCache[name] = 0;
@@ -148,6 +162,88 @@ class AppManager {
         this.appUsageCache = Object.fromEntries(Object.entries(this.appUsageCache).filter(([key]) => key !== app.Name));
         await this.writeToDisk();
         this.#wbConfig!.config.customApps = this.#wbConfig!.config.customApps.filter((a) => a.Name !== app.Name);
+    }
+
+    /**
+     * Toggle app visibility (hide/show)
+     * @param app The app to toggle
+     */
+    toggleAppVisibility(app: WinApp): boolean {
+        const newHiddenState = this.#wbConfig!.toggleAppVisibility(app.Path);
+        // Update the app in cache
+        const cachedApp = this.appCache.find(a => a.Path === app.Path);
+        if (cachedApp) {
+            cachedApp.Hidden = newHiddenState;
+        }
+        return newHiddenState;
+    }
+
+    /**
+     * Get only visible apps
+     */
+    getVisibleApps(): WinApp[] {
+        return this.appCache.filter(app => !app.Hidden);
+    }
+
+    /**
+     * Get only hidden apps
+     */
+    getHiddenApps(): WinApp[] {
+        return this.appCache.filter(app => app.Hidden);
+    }
+
+    /**
+     * Create a new app group
+     */
+    createAppGroup(name: string, options?: { icon?: string; color?: string }) {
+        return this.#wbConfig!.createAppGroup(name, options);
+    }
+
+    /**
+     * Delete an app group
+     */
+    deleteAppGroup(groupId: string): boolean {
+        const success = this.#wbConfig!.deleteAppGroup(groupId);
+        // Update cache - remove group IDs from apps
+        this.appCache.forEach(app => {
+            if (app.GroupId === groupId) {
+                app.GroupId = null;
+            }
+        });
+        return success;
+    }
+
+    /**
+     * Assign app to group
+     */
+    assignAppToGroup(app: WinApp, groupId: string | null): void {
+        this.#wbConfig!.assignAppToGroup(app.Path, groupId);
+        // Update cache
+        const cachedApp = this.appCache.find(a => a.Path === app.Path);
+        if (cachedApp) {
+            cachedApp.GroupId = groupId;
+        }
+    }
+
+    /**
+     * Get all app groups
+     */
+    getAppGroups() {
+        return this.#wbConfig!.getAppGroups();
+    }
+
+    /**
+     * Get apps in a specific group
+     */
+    getAppsInGroup(groupId: string): WinApp[] {
+        return this.appCache.filter(app => app.GroupId === groupId);
+    }
+
+    /**
+     * Get ungrouped apps
+     */
+    getUngroupedApps(): WinApp[] {
+        return this.appCache.filter(app => !app.GroupId && !app.Hidden);
     }
 }
 

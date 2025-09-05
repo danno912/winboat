@@ -58,29 +58,6 @@
                 </x-button>
             </footer>
         </dialog>
-
-        <!-- Create Group Dialog -->
-        <dialog v-if="showCreateGroupDialog" @click.self="showCreateGroupDialog = false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div @click.stop class="p-6 bg-neutral-900 rounded-xl border border-neutral-700 w-96">
-                <h3 class="mb-4 text-lg font-semibold">Create New Group</h3>
-                <x-input
-                    type="text"
-                    class="!max-w-full mb-4"
-                    v-model="newGroupName"
-                    placeholder="Group name"
-                >
-                    <x-label>Group Name</x-label>
-                </x-input>
-                <div class="flex justify-end gap-2">
-                    <x-button @click="showCreateGroupDialog = false">
-                        <x-label>Cancel</x-label>
-                    </x-button>
-                    <x-button @click="handleCreateGroup" :disabled="!newGroupName.trim()">
-                        <x-label>Create</x-label>
-                    </x-button>
-                </div>
-            </div>
-        </dialog>
         
         <div class="flex justify-between items-center mb-6">
             <x-label class="text-neutral-300">Apps</x-label>
@@ -126,18 +103,6 @@
                     <x-icon href="#search"></x-icon>
                     <x-label>Search</x-label>
                 </x-input>
-
-                <!-- Show/Hide toggle -->
-                <x-button @click="showHiddenApps = !showHiddenApps" :class="{ 'toggled': showHiddenApps }">
-                    <x-icon href="#visibility" class="qualifier"></x-icon>
-                    <x-label class="qualifier">{{ showHiddenApps ? 'Hide Hidden' : 'Show Hidden' }}</x-label>
-                </x-button>
-
-                <!-- Create Group button -->
-                <x-button @click="showCreateGroupDialog = true">
-                    <x-icon href="#add" class="qualifier"></x-icon>
-                    <x-label class="qualifier">Create Group</x-label>
-                </x-button>
             </div>
         </div>
         <div v-if="winboat.isOnline.value" class="px-2">
@@ -153,16 +118,8 @@
                             <x-label class="truncate text-ellipsis">{{ app.Name }}</x-label>
                         </div>
                         <Icon icon="cuida:caret-right-outline"></Icon>
-                        <WBContextMenu>
-                            <WBMenuItem @click="toggleAppVisibility(app)">
-                                <Icon class="size-4" :icon="app.Hidden ? 'mdi:eye' : 'mdi:eye-off'"></Icon>
-                                <x-label>{{ app.Hidden ? 'Show App' : 'Hide App' }}</x-label>
-                            </WBMenuItem>
-                            <WBMenuItem v-if="appGroups.length > 0" @click="assignAppToGroup(app, null)">
-                                <Icon class="size-4" icon="mdi:folder-remove"></Icon>
-                                <x-label>Remove from Group</x-label>
-                            </WBMenuItem>
-                            <WBMenuItem v-if="app.Source === 'custom'" @click="removeCustomApp(app)">
+                        <WBContextMenu v-if="app.Source === 'custom'">
+                            <WBMenuItem @click="removeCustomApp(app)">
                                 <Icon class="size-4" icon="mdi:trash-can"></Icon>
                                 <x-label>Remove Custom App</x-label>
                             </WBMenuItem>
@@ -214,43 +171,21 @@ const customAppName = ref('');
 const customAppPath = ref('');
 const customAppIcon = ref(`data:image/png;base64,${AppIcons[DEFAULT_ICON]}`);
 
-// New state for visibility and grouping
-const showHiddenApps = ref(false);
-const viewMode = ref<'list' | 'groups'>('list');
-const selectedGroupId = ref<string | null>(null);
-const appGroups = ref<any[]>([]);
-const showCreateGroupDialog = ref(false);
-const newGroupName = ref('');
-const selectedAppsForGroup = ref<string[]>([]);
-
 const computedApps = computed(() => {
-    let filteredApps = apps.value;
-    
-    // Filter by visibility
-    if (!showHiddenApps.value) {
-        filteredApps = filteredApps.filter(app => !app.Hidden);
-    }
-    
-    // Filter by search input
-    if (searchInput.value) {
-        filteredApps = filteredApps.filter(app => 
-            app.Name.toLowerCase().includes(searchInput.value.toLowerCase())
-        );
-    }
-    
-    // Sort apps
-    return filteredApps.sort((a, b) => { 
+    if (!searchInput.value) return apps.value.sort((a, b) => { 
         if(sortBy.value == 'usage' && a.Usage !== b.Usage) {
             return b.Usage! - a.Usage!;
         }
         return a.Name.localeCompare(b.Name)
     });
+    return apps.value
+        .filter(app => app.Name.toLowerCase().includes(searchInput.value.toLowerCase()))
+        .sort((a, b) => a.Name.localeCompare(b.Name));
 })
 
 onMounted(async () => {
     if (winboat.isOnline.value) {
         apps.value = await winboat.appMgr!.getApps();
-        appGroups.value = getAppGroups();
 
         // Run in background, won't impact UX
         await winboat.appMgr!.updateAppCache();
@@ -262,7 +197,6 @@ onMounted(async () => {
     watch(winboat.isOnline, async (newVal, _) => {
         if (newVal) {
             apps.value = await winboat.appMgr!.getApps();
-            appGroups.value = getAppGroups();
             console.log("Apps list: ", apps.value);
         }
     })
@@ -368,61 +302,6 @@ async function addCustomApp() {
 async function removeCustomApp(app: WinApp) {
     await winboat.appMgr!.removeCustomApp(app);
     apps.value = await winboat.appMgr!.getApps();
-}
-
-/**
- * Toggle app visibility (hide/show)
- */
-async function toggleAppVisibility(app: WinApp) {
-    winboat.appMgr!.toggleAppVisibility(app);
-    // Refresh apps to get updated state
-    apps.value = await winboat.appMgr!.getApps();
-}
-
-/**
- * Create a new app group
- */
-async function createAppGroup(name: string, options?: { icon?: string; color?: string }) {
-    const group = winboat.appMgr!.createAppGroup(name, options);
-    return group;
-}
-
-/**
- * Delete an app group
- */
-async function deleteAppGroup(groupId: string) {
-    const success = winboat.appMgr!.deleteAppGroup(groupId);
-    if (success) {
-        apps.value = await winboat.appMgr!.getApps();
-    }
-    return success;
-}
-
-/**
- * Assign app to group
- */
-async function assignAppToGroup(app: WinApp, groupId: string | null) {
-    winboat.appMgr!.assignAppToGroup(app, groupId);
-    apps.value = await winboat.appMgr!.getApps();
-}
-
-/**
- * Get available app groups
- */
-function getAppGroups() {
-    return winboat.appMgr!.getAppGroups();
-}
-
-/**
- * Handle creating a new group
- */
-async function handleCreateGroup() {
-    if (!newGroupName.value.trim()) return;
-    
-    const group = await createAppGroup(newGroupName.value.trim());
-    appGroups.value = getAppGroups();
-    newGroupName.value = '';
-    showCreateGroupDialog.value = false;
 }
 
 /**

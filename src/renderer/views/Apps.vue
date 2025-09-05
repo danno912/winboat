@@ -293,12 +293,6 @@
                             <x-label>{{ isAppIntegrated(app) ? 'Remove from Start Menu' : 'Add to Start Menu' }}</x-label>
                         </WBMenuItem>
                         
-                        <!-- Desktop integration -->
-                        <WBMenuItem @click.stop="toggleDesktopIntegration(app)">
-                            <Icon class="size-4" :icon="isAppIntegrated(app) ? 'mdi:menu-open' : 'mdi:menu-plus'"></Icon>
-                            <x-label>{{ isAppIntegrated(app) ? 'Remove from Start Menu' : 'Add to Start Menu' }}</x-label>
-                        </WBMenuItem>
-                        
                         <!-- Custom app removal -->
                         <WBMenuItem v-if="app.Source === 'custom'" @click.stop="removeCustomApp(app)">
                             <Icon class="size-4" icon="mdi:trash-can"></Icon>
@@ -356,6 +350,12 @@
                                     </WBMenuItem>
                                 </template>
                                 
+                                <!-- Desktop integration -->
+                                <WBMenuItem @click.stop="toggleDesktopIntegration(app)">
+                                    <Icon class="size-4" :icon="isAppIntegrated(app) ? 'mdi:menu-open' : 'mdi:menu-plus'"></Icon>
+                                    <x-label>{{ isAppIntegrated(app) ? 'Remove from Start Menu' : 'Add to Start Menu' }}</x-label>
+                                </WBMenuItem>
+                                
                                 <!-- Custom app removal -->
                                 <WBMenuItem v-if="app.Source === 'custom'" @click.stop="removeCustomApp(app)">
                                     <Icon class="size-4" icon="mdi:trash-can"></Icon>
@@ -406,6 +406,12 @@
                                         <x-label>Add to {{ group.name }}</x-label>
                                     </WBMenuItem>
                                 </template>
+                                
+                                <!-- Desktop integration -->
+                                <WBMenuItem @click.stop="toggleDesktopIntegration(app)">
+                                    <Icon class="size-4" :icon="isAppIntegrated(app) ? 'mdi:menu-open' : 'mdi:menu-plus'"></Icon>
+                                    <x-label>{{ isAppIntegrated(app) ? 'Remove from Start Menu' : 'Add to Start Menu' }}</x-label>
+                                </WBMenuItem>
                                 
                                 <!-- Custom app removal -->
                                 <WBMenuItem v-if="app.Source === 'custom'" @click.stop="removeCustomApp(app)">

@@ -182,52 +182,19 @@ export class DesktopIntegration {
     
     /**
      * Gets the appropriate executable path for desktop entries
-     * In development, returns a command that runs electron with the main.js file and dev server port
-     * In production, would return the packaged app path
+     * Uses the WinApps-inspired direct launcher script for both dev and production
      */
     private static getDefaultExecutablePath(): string {
-        const remote: typeof import('@electron/remote') = require('@electron/remote');
+        const os: typeof import('os') = require('os');
         const path: typeof import('path') = require('path');
         
-        // Check if we're in development mode
-        const isDev = process.env.NODE_ENV === 'development' || import.meta.env?.DEV;
+        // Use the launcher script for both dev and production
+        // This bypasses Electron entirely and launches apps directly via FreeRDP
+        const launcherPath = path.join(os.homedir(), '.local', 'bin', 'winboat-launcher');
         
-        if (isDev) {
-            // In development, we need to run electron with the built main.js and the dev server port
-            const appPath = remote.app.getAppPath();
-            const electronPath = process.execPath;
-            
-            // In dev mode, appPath might already point to build/main, so check and adjust
-            const mainJsPath = appPath.includes('build/main') 
-                ? path.join(appPath, 'main.js')
-                : path.join(appPath, 'build', 'main', 'main.js');
-            
-            // Get the current dev server port - try to find it from running processes
-            const devServerPort = this.getDevServerPort();
-            
-            return `"${electronPath}" "${mainJsPath}" ${devServerPort}`;
-        } else {
-            // In production, use the packaged executable
-            return `"${process.execPath}"`;
-        }
+        return launcherPath;
     }
     
-    /**
-     * Attempts to find the current Vite dev server port
-     */
-    private static getDevServerPort(): string {
-        // In development, try to get the port from the current window location
-        // This is a fallback - ideally we'd store this somewhere accessible
-        if (typeof window !== 'undefined' && window.location) {
-            const port = window.location.port;
-            if (port) {
-                return port;
-            }
-        }
-        
-        // Fallback to common Vite dev server port
-        return '8080';
-    }
     
     /**
      * Complete system cleanup - removes all WinBoat traces from the desktop environment
@@ -316,15 +283,12 @@ export class DesktopIntegration {
         // Determine appropriate category based on app name/path
         const category = this.determineCategory(app);
         
-        // In development mode, we need to set NODE_ENV
-        const isDev = process.env.NODE_ENV === 'development' || import.meta.env?.DEV;
-        const execCommand = isDev ? `env NODE_ENV=development ${execPath}` : execPath;
-        
+        // Use the launcher script directly without NODE_ENV since it bypasses Electron
         return `[Desktop Entry]
 Type=Application
 Name=${app.Name}
 Comment=Launch ${app.Name} via WinBoat
-Exec=${execCommand} --launch-app="${app.Path}"
+Exec=${execPath} --launch-app="${app.Path}"
 Icon=${iconPath}
 Terminal=false
 Categories=${category};

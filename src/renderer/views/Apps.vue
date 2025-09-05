@@ -110,6 +110,35 @@
                 </div>
             </div>
         </dialog>
+
+        <!-- Desktop Integration Cleanup Dialog -->
+        <dialog ref="cleanupDialog">
+            <h3 class="mb-2">Desktop Integration Cleanup</h3>
+            <p class="mb-4 max-w-[40vw]">This will remove all Windows apps from your Linux start menu. The apps will still be available in WinBoat, but they won't appear as native Linux applications anymore.</p>
+            
+            <div v-if="cleanupStatus" class="mb-4 p-3 rounded bg-neutral-800 border">
+                <h4 class="text-sm font-semibold mb-2">Cleanup Results:</h4>
+                <ul class="text-sm space-y-1">
+                    <li class="text-green-400">✓ Removed {{ cleanupStatus.desktopEntries.removed }} desktop entries</li>
+                    <li v-if="cleanupStatus.desktopEntries.errors.length > 0" class="text-yellow-400">
+                        ⚠ {{ cleanupStatus.desktopEntries.errors.length }} errors occurred
+                    </li>
+                </ul>
+                <p class="text-xs text-neutral-400 mt-2">{{ cleanupStatus.summary }}</p>
+            </div>
+
+            <div class="flex gap-2 justify-end">
+                <x-button @click="cleanupDialog!.close()">
+                    <x-label>Cancel</x-label>
+                </x-button>
+                <x-button v-if="!cleanupStatus" @click="performDesktopCleanup()" class="bg-red-600 hover:bg-red-700">
+                    <x-label>Remove All Desktop Entries</x-label>
+                </x-button>
+                <x-button v-else @click="cleanupDialog!.close(); cleanupStatus = null" class="bg-green-600 hover:bg-green-700">
+                    <x-label>Done</x-label>
+                </x-button>
+            </div>
+        </dialog>
         
         <div class="flex flex-col gap-3 mb-6">
             <x-label class="text-neutral-300">Apps</x-label>
@@ -194,10 +223,22 @@
                     <x-label class="qualifier">Create Group</x-label>
                 </x-button>
 
+                <!-- Desktop Cleanup button -->
+                <x-button v-if="desktopIntegratedApps.size > 0" @click="cleanupDialog!.showModal()" class="bg-orange-600 hover:bg-orange-700">
+                    <x-icon href="#delete" class="qualifier"></x-icon>
+                    <x-label class="qualifier">Clean Desktop</x-label>
+                </x-button>
+
                 <!-- Groups info -->
                 <div v-if="appGroups.length > 0" class="flex items-center gap-1 text-xs text-neutral-400">
                     <Icon class="size-3" icon="mdi:folder"></Icon>
                     <span>{{ appGroups.length }} group{{ appGroups.length !== 1 ? 's' : '' }}</span>
+                </div>
+                
+                <!-- Desktop integration info -->
+                <div v-if="desktopIntegratedApps.size > 0" class="flex items-center gap-1 text-xs text-neutral-400">
+                    <Icon class="size-3" icon="mdi:menu"></Icon>
+                    <span>{{ desktopIntegratedApps.size }} in start menu</span>
                 </div>
             </div>
         </div>
@@ -245,6 +286,18 @@
                                 <x-label>Add to {{ group.name }}</x-label>
                             </WBMenuItem>
                         </template>
+                        
+                        <!-- Desktop integration -->
+                        <WBMenuItem @click.stop="toggleDesktopIntegration(app)">
+                            <Icon class="size-4" :icon="isAppIntegrated(app) ? 'mdi:menu-open' : 'mdi:menu-plus'"></Icon>
+                            <x-label>{{ isAppIntegrated(app) ? 'Remove from Start Menu' : 'Add to Start Menu' }}</x-label>
+                        </WBMenuItem>
+                        
+                        <!-- Desktop integration -->
+                        <WBMenuItem @click.stop="toggleDesktopIntegration(app)">
+                            <Icon class="size-4" :icon="isAppIntegrated(app) ? 'mdi:menu-open' : 'mdi:menu-plus'"></Icon>
+                            <x-label>{{ isAppIntegrated(app) ? 'Remove from Start Menu' : 'Add to Start Menu' }}</x-label>
+                        </WBMenuItem>
                         
                         <!-- Custom app removal -->
                         <WBMenuItem v-if="app.Source === 'custom'" @click.stop="removeCustomApp(app)">
@@ -398,6 +451,7 @@ import { AppIcons, DEFAULT_ICON } from '../data/appicons';
 import { WINBOAT_GUEST_API } from '../lib/constants';
 import { debounce } from '../utils/debounce';
 import { Jimp, JimpMime } from 'jimp';
+import { DesktopIntegration } from '../utils/desktopIntegration';
 const nodeFetch: typeof import('node-fetch').default = require('node-fetch');
 const FormData: typeof import('form-data') = require('form-data');
 
@@ -406,6 +460,7 @@ const apps = ref<WinApp[]>([]);
 const searchInput = ref('');
 const sortBy = ref('');
 const addCustomAppDialog = useTemplateRef('addCustomAppDialog');
+const cleanupDialog = useTemplateRef('cleanupDialog');
 const customAppName = ref('');
 const customAppPath = ref('');
 const customAppIcon = ref(`data:image/png;base64,${AppIcons[DEFAULT_ICON]}`);
@@ -418,6 +473,10 @@ const appGroups = ref<any[]>([]);
 const showCreateGroupDialog = ref(false);
 const newGroupName = ref('');
 const selectedAppsForGroup = ref<string[]>([]);
+
+// Desktop integration state
+const desktopIntegratedApps = ref<Set<string>>(new Set());
+const cleanupStatus = ref<any>(null);
 
 const computedApps = computed(() => {
     // Ensure we have fresh data
@@ -539,11 +598,16 @@ onMounted(async () => {
         appGroups.value = [...getAppGroups()];
         console.log('Initial load - Apps:', apps.value.length, 'Groups:', appGroups.value.length);
 
+        // Check desktop integration status
+        refreshDesktopIntegrationStatus();
+
         // Run in background, won't impact UX
         await winboat.appMgr!.updateAppCache();
         if(winboat.appMgr!.appCache.length > apps.value.length) {
             apps.value = [...winboat!.appMgr!.appCache];
             appGroups.value = [...getAppGroups()];
+            // Refresh desktop integration status again after cache update
+            refreshDesktopIntegrationStatus();
         }
     }
 
@@ -784,6 +848,100 @@ async function resetCustomAppForm() {
             input.value = '';
         });
     }, 100)
+}
+
+/**
+ * Desktop Integration Functions
+ */
+
+/**
+ * Check if an app is integrated to the desktop (has a .desktop file)
+ */
+function isAppIntegrated(app: WinApp): boolean {
+    return desktopIntegratedApps.value.has(app.Path);
+}
+
+/**
+ * Add app to Linux start menu
+ */
+async function addToStartMenu(app: WinApp) {
+    try {
+        const success = await DesktopIntegration.createDesktopEntry(app);
+        if (success) {
+            desktopIntegratedApps.value.add(app.Path);
+            console.log(`Successfully added ${app.Name} to start menu`);
+        } else {
+            console.error(`Failed to add ${app.Name} to start menu`);
+        }
+    } catch (error) {
+        console.error(`Error adding ${app.Name} to start menu:`, error);
+    }
+}
+
+/**
+ * Remove app from Linux start menu
+ */
+async function removeFromStartMenu(app: WinApp) {
+    try {
+        const success = await DesktopIntegration.removeDesktopEntry(app);
+        if (success) {
+            desktopIntegratedApps.value.delete(app.Path);
+            console.log(`Successfully removed ${app.Name} from start menu`);
+        } else {
+            console.error(`Failed to remove ${app.Name} from start menu`);
+        }
+    } catch (error) {
+        console.error(`Error removing ${app.Name} from start menu:`, error);
+    }
+}
+
+/**
+ * Toggle desktop integration for an app
+ */
+async function toggleDesktopIntegration(app: WinApp) {
+    if (isAppIntegrated(app)) {
+        await removeFromStartMenu(app);
+    } else {
+        await addToStartMenu(app);
+    }
+}
+
+/**
+ * Refresh desktop integration status for all apps
+ */
+function refreshDesktopIntegrationStatus() {
+    const integratedApps = new Set<string>();
+    
+    // Check each app to see if it has a desktop entry
+    apps.value.forEach(app => {
+        if (DesktopIntegration.hasDesktopEntry(app)) {
+            integratedApps.add(app.Path);
+        }
+    });
+    
+    desktopIntegratedApps.value = integratedApps;
+}
+
+/**
+ * Perform system cleanup to remove all desktop integration
+ */
+async function performDesktopCleanup() {
+    try {
+        console.log('Starting desktop cleanup...');
+        const result = await DesktopIntegration.performSystemCleanup();
+        
+        // Update UI state
+        cleanupStatus.value = result;
+        desktopIntegratedApps.value.clear();
+        
+        console.log('Desktop cleanup completed:', result.summary);
+    } catch (error) {
+        console.error('Desktop cleanup failed:', error);
+        cleanupStatus.value = {
+            desktopEntries: { removed: 0, errors: [`Cleanup failed: ${error}`] },
+            summary: 'Cleanup failed with errors'
+        };
+    }
 }
 </script>
 

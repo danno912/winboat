@@ -55,6 +55,7 @@ The guest server must be built before the main application as it's embedded in t
 
 - **Docker Management**: The app manages Windows containers through docker-compose configurations stored in `~/.winboat/`
 - **FreeRDP Integration**: Used for RemoteApp connections to display Windows applications as native Linux windows
+- **Desktop Integration**: Windows apps can be added to Linux start menu as native applications via XDG desktop entries
 - **Configuration**: Stored in `~/.winboat/winboat.config.json`, managed by `src/renderer/lib/config.ts`
 - **Constants**: API endpoints and paths defined in `src/renderer/lib/constants.ts`
 
@@ -66,6 +67,46 @@ The guest server must be built before the main application as it's embedded in t
 5. FreeRDP establishes RemoteApp connection
 6. Windows app appears as native Linux window
 
+## Desktop Integration System
+
+WinBoat includes a comprehensive Linux desktop integration system that allows Windows apps to appear as native Linux applications in the start menu.
+
+### Desktop Integration Features
+
+- **XDG Desktop Entries**: Creates `.desktop` files in `~/.local/share/applications/`
+- **Icon Management**: Extracts and stores Windows app icons as PNG files in `~/.local/share/icons/winboat/`
+- **Direct App Launch**: Supports `--launch-app="C:\path\to\app.exe"` CLI arguments for direct launching
+- **Smart Categorization**: Automatically categorizes apps (Games, Development, Office, Graphics, etc.)
+- **UI Integration**: Context menu options to add/remove apps from start menu
+- **System Cleanup**: Comprehensive cleanup tools for removing all desktop integration
+
+### Desktop Integration Files
+
+```
+~/.local/share/applications/
+├── winboat-{app-name}.desktop    # Desktop entry files
+└── ...
+
+~/.local/share/icons/winboat/
+├── {app-name}.png               # App icon files  
+└── ...
+```
+
+### Key Components
+
+- **DesktopIntegration utility** (`src/renderer/utils/desktopIntegration.ts`): Core desktop integration logic
+- **CLI argument handling** (`src/main/main.ts`): Processes `--launch-app` arguments
+- **IPC communication** (`src/renderer/App.vue`): Handles direct app launch requests
+- **UI controls** (`src/renderer/views/Apps.vue`): Context menus and cleanup interface
+- **Cleanup script** (`cleanup-desktop-integration.js`): Standalone system cleanup utility
+
+### App Groups and Visibility Management
+
+- **App Grouping**: Users can create custom groups and organize apps
+- **Hide/Show Apps**: Apps can be hidden from the main list while remaining accessible
+- **Group View Mode**: Toggle between list view and organized group view
+- **Visual Indicators**: Clear visual feedback for grouped, hidden, and integrated apps
+
 ## Important Implementation Details
 
 - The app uses a singleton pattern for Winboat and WinboatConfig classes
@@ -73,3 +114,4 @@ The guest server must be built before the main application as it's embedded in t
 - Home directory is automatically mounted in Windows for file sharing
 - App usage tracking stored in `~/.winboat/appUsage.json`
 - Logging to `~/.winboat/winboat.log`
+- Desktop integration state tracked in reactive Vue refs for real-time UI updates

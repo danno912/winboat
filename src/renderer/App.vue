@@ -151,6 +151,29 @@ onMounted(async () => {
         winboat = new Winboat();
         $router.push('/home');
     }
+    
+    // Listen for direct app launch requests from desktop entries
+    const { ipcRenderer } = require('electron');
+    ipcRenderer.on('launch-app', async (event: any, appPath: string) => {
+        console.log('Received launch-app request for:', appPath);
+        if (winboat && winboat.isOnline.value) {
+            try {
+                // Find the app by path and launch it
+                const apps = await winboat.appMgr!.getApps();
+                const app = apps.find(a => a.Path === appPath);
+                if (app) {
+                    console.log('Launching app:', app.Name);
+                    await winboat.launchApp(app);
+                    // Minimize window after launching to make it less intrusive
+                    BrowserWindow.getFocusedWindow()?.minimize();
+                } else {
+                    console.error('App not found for path:', appPath);
+                }
+            } catch (error) {
+                console.error('Failed to launch app from desktop entry:', error);
+            }
+        }
+    });
 
     // Watch for guest server updates and show dialog
     watch(() => winboat?.isUpdatingGuestServer.value, (isUpdating) => {

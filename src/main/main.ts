@@ -4,6 +4,16 @@ import { initialize, enable } from '@electron/remote/main';
 
 initialize();
 
+// Handle command line arguments for direct app launching
+let launchAppPath: string | null = null;
+const args = process.argv;
+for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith('--launch-app=')) {
+        launchAppPath = args[i].split('=')[1];
+        break;
+    }
+}
+
 function createWindow() {
     const mainWindow = new BrowserWindow({
         minWidth: 1280,
@@ -29,6 +39,13 @@ function createWindow() {
     }
     else {
         mainWindow.loadFile(join(app.getAppPath(), 'renderer', 'index.html'));
+    }
+    
+    // Send launch app path to renderer if provided
+    if (launchAppPath) {
+        mainWindow.webContents.once('did-finish-load', () => {
+            mainWindow.webContents.send('launch-app', launchAppPath);
+        });
     }
 }
 

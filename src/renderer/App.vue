@@ -156,22 +156,30 @@ onMounted(async () => {
     const { ipcRenderer } = require('electron');
     ipcRenderer.on('launch-app', async (event: any, appPath: string) => {
         console.log('Received launch-app request for:', appPath);
+        console.log('WinBoat instance:', winboat ? 'exists' : 'null');
+        console.log('WinBoat online:', winboat?.isOnline.value);
+        
         if (winboat && winboat.isOnline.value) {
             try {
                 // Find the app by path and launch it
                 const apps = await winboat.appMgr!.getApps();
+                console.log('Found apps count:', apps.length);
                 const app = apps.find(a => a.Path === appPath);
                 if (app) {
                     console.log('Launching app:', app.Name);
                     await winboat.launchApp(app);
                     // Minimize window after launching to make it less intrusive
                     BrowserWindow.getFocusedWindow()?.minimize();
+                    console.log('App launch completed');
                 } else {
                     console.error('App not found for path:', appPath);
+                    console.log('Available app paths:', apps.map(a => a.Path));
                 }
             } catch (error) {
                 console.error('Failed to launch app from desktop entry:', error);
             }
+        } else {
+            console.error('WinBoat is not online or not initialized');
         }
     });
 

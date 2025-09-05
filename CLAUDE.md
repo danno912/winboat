@@ -56,16 +56,27 @@ The guest server must be built before the main application as it's embedded in t
 - **Docker Management**: The app manages Windows containers through docker-compose configurations stored in `~/.winboat/`
 - **FreeRDP Integration**: Used for RemoteApp connections to display Windows applications as native Linux windows
 - **Desktop Integration**: Windows apps can be added to Linux start menu as native applications via XDG desktop entries
+- **Single Instance Architecture**: Electron uses single-instance locking to handle direct app launches from desktop entries
 - **Configuration**: Stored in `~/.winboat/winboat.config.json`, managed by `src/renderer/lib/config.ts`
 - **Constants**: API endpoints and paths defined in `src/renderer/lib/constants.ts`
 
 ### Data Flow
+
+#### Standard App Launch (from WinBoat UI)
 1. User selects Windows app in UI
 2. Frontend calls Winboat class methods (`src/renderer/lib/winboat.ts`)
 3. Winboat communicates with Guest Server API (port 8000)
 4. Guest Server launches app in Windows
 5. FreeRDP establishes RemoteApp connection
 6. Windows app appears as native Linux window
+
+#### Direct App Launch (from Linux Start Menu)
+1. User clicks desktop entry in Linux start menu
+2. Desktop entry executes with `--launch-app="C:\path\to\app.exe"` argument
+3. Electron single-instance system prevents duplicate and fires `second-instance` event
+4. Main process sends IPC message to renderer with app path
+5. Renderer finds matching app and calls `winboat.launchApp()`
+6. Standard launch flow continues (steps 3-6 above)
 
 ## Desktop Integration System
 
@@ -95,10 +106,11 @@ WinBoat includes a comprehensive Linux desktop integration system that allows Wi
 ### Key Components
 
 - **DesktopIntegration utility** (`src/renderer/utils/desktopIntegration.ts`): Core desktop integration logic
-- **CLI argument handling** (`src/main/main.ts`): Processes `--launch-app` arguments
-- **IPC communication** (`src/renderer/App.vue`): Handles direct app launch requests
+- **CLI argument handling** (`src/main/main.ts`): Processes `--launch-app` arguments and implements single-instance locking
+- **IPC communication** (`src/renderer/App.vue`): Handles direct app launch requests from desktop entries  
 - **UI controls** (`src/renderer/views/Apps.vue`): Context menus and cleanup interface
 - **Cleanup script** (`cleanup-desktop-integration.js`): Standalone system cleanup utility
+- **FreeRDP wm-class handling** (`src/renderer/lib/winboat.ts`): Proper window class naming for X11 compatibility
 
 ### App Groups and Visibility Management
 

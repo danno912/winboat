@@ -585,7 +585,7 @@ export class Winboat {
         ${this.#wbConfig?.config.smartcardEnabled ? '/smartcard' : ''}\
         /compression\
         /scale:${this.#wbConfig?.config.scale ?? 100}\
-        /wm-class:"${app.Name}"\
+        /wm-class:"${app.Name.replace(/\s+/g, '_')}"\
         /app:program:"${app.Path}",name:"${app.Name}" &`;
 
         if (app.Path == InternalApps.WINDOWS_DESKTOP) {

@@ -49,10 +49,41 @@ function createWindow() {
     }
 }
 
-app.whenReady().then(() => {
-    createWindow();
+// Handle single instance - important for desktop entries to work
+const gotTheLock = app.requestSingleInstanceLock();
 
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+if (!gotTheLock) {
+    app.quit();
+} else {
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        // Someone tried to run a second instance, check for launch-app argument
+        for (let i = 0; i < commandLine.length; i++) {
+            if (commandLine[i].startsWith('--launch-app=')) {
+                const appPath = commandLine[i].split('=')[1];
+                console.log('Received launch request from second instance:', appPath);
+                
+                // Send to existing window
+                const existingWindow = BrowserWindow.getAllWindows()[0];
+                if (existingWindow) {
+                    // Ensure the renderer is ready before sending the message
+                    if (existingWindow.webContents.isLoading()) {
+                        existingWindow.webContents.once('did-finish-load', () => {
+                            existingWindow.webContents.send('launch-app', appPath);
+                        });
+                    } else {
+                        existingWindow.webContents.send('launch-app', appPath);
+                    }
+                    existingWindow.focus();
+                }
+                break;
+            }
+        }
+    });
+
+    app.whenReady().then(() => {
+        createWindow();
+
+        session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
         callback({
             responseHeaders: {
                 ...details.responseHeaders,
@@ -68,19 +99,20 @@ app.whenReady().then(() => {
         })
     })
 
-    app.on('activate', function () {
-        // On macOS it's common to re-create a window in the app when the
-        // dock icon is clicked and there are no other windows open.
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
-        }
+        app.on('activate', function () {
+            // On macOS it's common to re-create a window in the app when the
+            // dock icon is clicked and there are no other windows open.
+            if (BrowserWindow.getAllWindows().length === 0) {
+                createWindow();
+            }
+        });
     });
-});
+    
+    app.on('window-all-closed', function () {
+        if (process.platform !== 'darwin') app.quit()
+    });
 
-app.on('window-all-closed', function () {
-    if (process.platform !== 'darwin') app.quit()
-});
-
-ipcMain.on('message', (event, message) => {
-    console.log(message);
-})
+    ipcMain.on('message', (event, message) => {
+        console.log(message);
+    });
+}

@@ -145,12 +145,18 @@
                     <x-card
                         v-for="app of computedApps" :key="app.Path"
                         class="flex relative flex-row gap-2 justify-between items-center p-2 my-0 backdrop-blur-xl backdrop-brightness-150 cursor-pointer generic-hover bg-neutral-800/20"
-                        :class="{ 'bg-gradient-to-r from-yellow-600/20 bg-neutral-800/20': app.Source === 'custom' }"
+                        :class="{ 
+                            'bg-gradient-to-r from-yellow-600/20 bg-neutral-800/20': app.Source === 'custom',
+                            'opacity-50 bg-red-900/10 border border-red-500/30': app.Hidden && showHiddenApps
+                        }"
                         @click="winboat.launchApp(app)"
                     >
                         <div class="flex flex-row items-center gap-2 w-[85%]">
-                            <img class="rounded-md size-10" :src="`data:image/png;charset=utf-8;base64,${app.Icon}`"></img>
-                            <x-label class="truncate text-ellipsis">{{ app.Name }}</x-label>
+                            <div class="relative">
+                                <img class="rounded-md size-10" :src="`data:image/png;charset=utf-8;base64,${app.Icon}`" :class="{ 'grayscale': app.Hidden && showHiddenApps }"></img>
+                                <Icon v-if="app.Hidden && showHiddenApps" class="absolute -top-1 -right-1 size-4 text-red-400 bg-neutral-900 rounded-full" icon="mdi:eye-off"></Icon>
+                            </div>
+                            <x-label class="truncate text-ellipsis" :class="{ 'text-neutral-500 line-through': app.Hidden && showHiddenApps }">{{ app.Name }}</x-label>
                         </div>
                         <Icon icon="cuida:caret-right-outline"></Icon>
                         <WBContextMenu>

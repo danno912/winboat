@@ -84,12 +84,13 @@ WinBoat includes a comprehensive Linux desktop integration system that allows Wi
 
 ### Desktop Integration Features
 
-- **XDG Desktop Entries**: Creates `.desktop` files in `~/.local/share/applications/`
-- **Icon Management**: Extracts and stores Windows app icons as PNG files in `~/.local/share/icons/winboat/`
+- **XDG Desktop Entries**: Creates `.desktop` files in `~/.local/share/applications/` with proper `StartupWMClass` for taskbar icon matching
+- **Icon Management**: Extracts and stores Windows app icons as PNG files in `~/.local/share/icons/winboat/` with automatic upscaling for better quality
 - **Direct App Launch**: Supports `--launch-app="C:\path\to\app.exe"` CLI arguments for direct launching
 - **Smart Categorization**: Automatically categorizes apps (Games, Development, Office, Graphics, etc.)
 - **UI Integration**: Context menu options to add/remove apps from start menu
 - **System Cleanup**: Comprehensive cleanup tools for removing all desktop integration
+- **Taskbar Icon Matching**: Desktop entries include `StartupWMClass` field to ensure proper taskbar icon display in all Linux desktop environments
 
 ### Desktop Integration Files
 
@@ -120,6 +121,24 @@ WinBoat includes a comprehensive Linux desktop integration system that allows Wi
 - **Group View Mode**: Toggle between list view and organized group view
 - **Visual Indicators**: Clear visual feedback for grouped, hidden, and integrated apps
 
+## Icon System
+
+WinBoat includes a comprehensive icon management system for both the application itself and Windows applications.
+
+### Application Icons
+
+- **Multiple Size Variants**: WinBoat logo available in sizes from 16x16 to 512x512 for optimal display across contexts
+- **High Quality Scaling**: Uses advanced resampling algorithms for crisp icons at all sizes
+- **AppImage Integration**: Properly configured icons for AppImage distribution via electron-builder
+- **Icon Files**: Located in `icons/` directory with variants: `winboat-16.png`, `winboat-32.png`, `winboat-48.png`, `winboat-64.png`, `winboat-128.png`, `winboat-256.png`, `winboat-512.png`
+
+### Windows App Icons
+
+- **Automatic Extraction**: Extracts app icons from Windows applications and stores as PNG files
+- **Quality Enhancement**: Automatically upscales small icons to 64x64 for better desktop integration
+- **Transparency Preservation**: Maintains PNG transparency and alpha channels
+- **Taskbar Integration**: Uses `StartupWMClass` in desktop entries to ensure proper taskbar icon matching
+
 ## Important Implementation Details
 
 - The app uses a singleton pattern for Winboat and WinboatConfig classes
@@ -134,3 +153,4 @@ WinBoat includes a comprehensive Linux desktop integration system that allows Wi
 - **Secure credential handling**: Wrapper scripts read RDP credentials dynamically from user's WinBoat configuration files at creation time, ensuring no hardcoded credentials in the codebase
 - **Complete cleanup system**: System cleanup removes all desktop entries, icon files, and wrapper scripts, ensuring no leftover traces when uninstalling
 - **Production ready**: Ultra-simple approach works reliably across all desktop environments and is suitable for AppImage distribution
+- **Professional appearance**: High-quality icons and proper taskbar integration ensure WinBoat looks polished across all Linux desktop environments

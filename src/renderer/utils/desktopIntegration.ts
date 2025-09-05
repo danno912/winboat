@@ -622,6 +622,10 @@ xfreerdp3 \\
         // Create a simple wrapper script for this specific app
         const wrapperPath = this.createAppWrapper(app);
         
+        // Generate window class name for proper taskbar icon matching
+        // This should match the /wm-class parameter passed to FreeRDP
+        const wmClass = app.Name.replace(/\s+/g, '_');
+        
         return `[Desktop Entry]
 Type=Application
 Name=${app.Name}
@@ -631,6 +635,7 @@ Icon=${iconPath}
 Terminal=false
 Categories=${category};
 StartupNotify=true
+StartupWMClass=${wmClass}
 MimeType=application/x-winboat-app;
 Keywords=windows;app;winboat;${app.Name.toLowerCase()};
 X-WinBoat-App=true

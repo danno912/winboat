@@ -62,21 +62,50 @@
         <!-- Create Group Dialog -->
         <dialog v-if="showCreateGroupDialog" @click.self="showCreateGroupDialog = false" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div @click.stop class="p-6 bg-neutral-900 rounded-xl border border-neutral-700 w-96">
-                <h3 class="mb-4 text-lg font-semibold">Create New Group</h3>
-                <x-input
-                    type="text"
-                    class="!max-w-full mb-4"
-                    v-model="newGroupName"
-                    placeholder="Group name"
-                >
-                    <x-label>Group Name</x-label>
-                </x-input>
+                <h3 class="mb-4 text-lg font-semibold">Manage Groups</h3>
+                
+                <!-- Create new group -->
+                <div class="mb-4">
+                    <h4 class="mb-2 text-sm text-neutral-300">Create New Group</h4>
+                    <div class="flex gap-2">
+                        <x-input
+                            type="text"
+                            class="!max-w-full flex-1"
+                            v-model="newGroupName"
+                            placeholder="Group name"
+                            @keyup.enter="handleCreateGroup"
+                        >
+                            <x-label>Group Name</x-label>
+                        </x-input>
+                        <x-button @click="handleCreateGroup" :disabled="!newGroupName.trim()">
+                            <x-label>Add</x-label>
+                        </x-button>
+                    </div>
+                </div>
+
+                <!-- Existing groups -->
+                <div v-if="appGroups.length > 0" class="mb-4">
+                    <h4 class="mb-2 text-sm text-neutral-300">Existing Groups</h4>
+                    <div class="space-y-2 max-h-32 overflow-y-auto">
+                        <div v-for="group in appGroups" :key="group.id" 
+                             class="flex items-center justify-between p-2 bg-neutral-800 rounded text-sm">
+                            <div class="flex items-center gap-2">
+                                <Icon class="size-3" icon="mdi:folder"></Icon>
+                                <span>{{ group.name }}</span>
+                                <span class="text-xs text-neutral-400">
+                                    ({{ getAppsInGroupCount(group.id) }} apps)
+                                </span>
+                            </div>
+                            <x-button @click="handleDeleteGroup(group.id)" class="!p-1 !min-w-0 text-red-400 hover:bg-red-900/20">
+                                <Icon class="size-3" icon="mdi:trash-can"></Icon>
+                            </x-button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex justify-end gap-2">
                     <x-button @click="showCreateGroupDialog = false">
-                        <x-label>Cancel</x-label>
-                    </x-button>
-                    <x-button @click="handleCreateGroup" :disabled="!newGroupName.trim()">
-                        <x-label>Create</x-label>
+                        <x-label>Close</x-label>
                     </x-button>
                 </div>
             </div>
@@ -113,6 +142,24 @@
                                 Usage
                             </x-label>
                         </x-menuitem>
+                        <x-menuitem value="hidden">
+                            <x-icon href="#sort" class="qualifier"></x-icon>
+                            <x-label>
+                                <span class="qualifier">
+                                    Sort By:
+                                </span>
+                                Hidden Status
+                            </x-label>
+                        </x-menuitem>
+                        <x-menuitem value="group">
+                            <x-icon href="#sort" class="qualifier"></x-icon>
+                            <x-label>
+                                <span class="qualifier">
+                                    Sort By:
+                                </span>
+                                Group
+                            </x-label>
+                        </x-menuitem>
                     </x-menu>
                 </x-select>
                 <x-input
@@ -138,6 +185,12 @@
                     <x-icon href="#add" class="qualifier"></x-icon>
                     <x-label class="qualifier">Create Group</x-label>
                 </x-button>
+
+                <!-- Groups info -->
+                <div v-if="appGroups.length > 0" class="flex items-center gap-1 text-xs text-neutral-400">
+                    <Icon class="size-3" icon="mdi:folder"></Icon>
+                    <span>{{ appGroups.length }} group{{ appGroups.length !== 1 ? 's' : '' }}</span>
+                </div>
             </div>
         </div>
         <div v-if="winboat.isOnline.value" class="px-2">
@@ -155,8 +208,12 @@
                             <div class="relative">
                                 <img class="rounded-md size-10" :src="`data:image/png;charset=utf-8;base64,${app.Icon}`" :class="{ 'grayscale': app.Hidden && showHiddenApps }"></img>
                                 <Icon v-if="app.Hidden && showHiddenApps" class="absolute -top-1 -right-1 size-4 text-red-400 bg-neutral-900 rounded-full" icon="mdi:eye-off"></Icon>
+                                <Icon v-if="app.GroupId && !app.Hidden" class="absolute -bottom-1 -right-1 size-3 text-blue-400 bg-neutral-900 rounded-full" icon="mdi:folder"></Icon>
                             </div>
-                            <x-label class="truncate text-ellipsis" :class="{ 'text-neutral-500 line-through': app.Hidden && showHiddenApps }">{{ app.Name }}</x-label>
+                            <div class="flex flex-col">
+                                <x-label class="truncate text-ellipsis" :class="{ 'text-neutral-500 line-through': app.Hidden && showHiddenApps }">{{ app.Name }}</x-label>
+                                <x-label v-if="app.GroupId" class="text-xs text-blue-300 truncate">{{ getGroupName(app.GroupId) }}</x-label>
+                            </div>
                         </div>
                         <Icon icon="cuida:caret-right-outline"></Icon>
                         <WBContextMenu>
@@ -164,9 +221,15 @@
                                 <Icon class="size-4" :icon="app.Hidden ? 'mdi:eye' : 'mdi:eye-off'"></Icon>
                                 <x-label>{{ app.Hidden ? 'Show App' : 'Hide App' }}</x-label>
                             </WBMenuItem>
-                            <WBMenuItem v-if="appGroups.length > 0" @click="assignAppToGroup(app, null)">
+                            <WBMenuItem v-if="app.GroupId" @click="assignAppToGroup(app, null)">
                                 <Icon class="size-4" icon="mdi:folder-remove"></Icon>
                                 <x-label>Remove from Group</x-label>
+                            </WBMenuItem>
+                            <WBMenuItem v-for="group in appGroups" :key="group.id" 
+                                       v-if="app.GroupId !== group.id"
+                                       @click="assignAppToGroup(app, group.id)">
+                                <Icon class="size-4" icon="mdi:folder-plus"></Icon>
+                                <x-label>Add to {{ group.name }}</x-label>
                             </WBMenuItem>
                             <WBMenuItem v-if="app.Source === 'custom'" @click="removeCustomApp(app)">
                                 <Icon class="size-4" icon="mdi:trash-can"></Icon>
@@ -249,6 +312,22 @@ const computedApps = computed(() => {
         if(sortBy.value == 'usage' && a.Usage !== b.Usage) {
             return b.Usage! - a.Usage!;
         }
+        if(sortBy.value == 'hidden') {
+            // Sort by hidden status: visible apps first, then hidden apps
+            if (a.Hidden !== b.Hidden) {
+                return a.Hidden ? 1 : -1;
+            }
+        }
+        if(sortBy.value == 'group') {
+            // Sort by group: ungrouped first, then by group name
+            const aGroup = a.GroupId ? appGroups.value.find(g => g.id === a.GroupId)?.name || '' : '';
+            const bGroup = b.GroupId ? appGroups.value.find(g => g.id === b.GroupId)?.name || '' : '';
+            if (aGroup !== bGroup) {
+                // Ungrouped apps come first (empty string sorts before any text)
+                return aGroup.localeCompare(bGroup);
+            }
+        }
+        // Default: sort by name
         return a.Name.localeCompare(b.Name)
     });
 })
@@ -433,6 +512,31 @@ async function handleCreateGroup() {
     appGroups.value = getAppGroups();
     newGroupName.value = '';
     showCreateGroupDialog.value = false;
+}
+
+/**
+ * Get group name by ID
+ */
+function getGroupName(groupId: string): string {
+    const group = appGroups.value.find(g => g.id === groupId);
+    return group ? group.name : 'Unknown Group';
+}
+
+/**
+ * Get count of apps in a group
+ */
+function getAppsInGroupCount(groupId: string): number {
+    return apps.value.filter(app => app.GroupId === groupId).length;
+}
+
+/**
+ * Handle deleting a group
+ */
+async function handleDeleteGroup(groupId: string) {
+    const success = await deleteAppGroup(groupId);
+    if (success) {
+        appGroups.value = getAppGroups();
+    }
 }
 
 /**

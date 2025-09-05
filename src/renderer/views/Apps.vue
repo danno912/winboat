@@ -217,21 +217,28 @@
                         </div>
                         <Icon icon="cuida:caret-right-outline"></Icon>
                         <WBContextMenu>
-                            <WBMenuItem @click="toggleAppVisibility(app)">
+                            <!-- Always show hide/show option -->
+                            <WBMenuItem @click.stop="toggleAppVisibility(app)">
                                 <Icon class="size-4" :icon="app.Hidden ? 'mdi:eye' : 'mdi:eye-off'"></Icon>
                                 <x-label>{{ app.Hidden ? 'Show App' : 'Hide App' }}</x-label>
                             </WBMenuItem>
-                            <WBMenuItem v-if="app.GroupId" @click="assignAppToGroup(app, null)">
-                                <Icon class="size-4" icon="mdi:folder-remove"></Icon>
-                                <x-label>Remove from Group</x-label>
-                            </WBMenuItem>
-                            <WBMenuItem v-for="group in appGroups" :key="group.id" 
-                                       v-if="app.GroupId !== group.id"
-                                       @click="assignAppToGroup(app, group.id)">
-                                <Icon class="size-4" icon="mdi:folder-plus"></Icon>
-                                <x-label>Add to {{ group.name }}</x-label>
-                            </WBMenuItem>
-                            <WBMenuItem v-if="app.Source === 'custom'" @click="removeCustomApp(app)">
+                            
+                            <!-- Group management options -->
+                            <template v-if="appGroups.length > 0">
+                                <WBMenuItem v-if="app.GroupId" @click.stop="assignAppToGroup(app, null)">
+                                    <Icon class="size-4" icon="mdi:folder-remove"></Icon>
+                                    <x-label>Remove from Group</x-label>
+                                </WBMenuItem>
+                                <WBMenuItem v-for="group in appGroups" :key="`add-${group.id}`" 
+                                           v-show="app.GroupId !== group.id"
+                                           @click.stop="assignAppToGroup(app, group.id)">
+                                    <Icon class="size-4" icon="mdi:folder-plus"></Icon>
+                                    <x-label>Add to {{ group.name }}</x-label>
+                                </WBMenuItem>
+                            </template>
+                            
+                            <!-- Custom app removal -->
+                            <WBMenuItem v-if="app.Source === 'custom'" @click.stop="removeCustomApp(app)">
                                 <Icon class="size-4" icon="mdi:trash-can"></Icon>
                                 <x-label>Remove Custom App</x-label>
                             </WBMenuItem>
@@ -293,62 +300,72 @@ const newGroupName = ref('');
 const selectedAppsForGroup = ref<string[]>([]);
 
 const computedApps = computed(() => {
-    let filteredApps = apps.value;
+    // Ensure we have fresh data
+    const currentApps = [...apps.value];
+    const currentGroups = [...appGroups.value];
     
     // Filter by visibility
+    let filteredApps = currentApps;
     if (!showHiddenApps.value) {
         filteredApps = filteredApps.filter(app => !app.Hidden);
     }
     
     // Filter by search input
-    if (searchInput.value) {
+    if (searchInput.value && searchInput.value.trim()) {
+        const searchTerm = searchInput.value.toLowerCase().trim();
         filteredApps = filteredApps.filter(app => 
-            app.Name.toLowerCase().includes(searchInput.value.toLowerCase())
+            app.Name.toLowerCase().includes(searchTerm)
         );
     }
     
     // Sort apps
     return filteredApps.sort((a, b) => { 
-        if(sortBy.value == 'usage' && a.Usage !== b.Usage) {
-            return b.Usage! - a.Usage!;
+        const sortType = sortBy.value;
+        
+        if (sortType === 'usage' && a.Usage !== b.Usage) {
+            return (b.Usage || 0) - (a.Usage || 0);
         }
-        if(sortBy.value == 'hidden') {
+        
+        if (sortType === 'hidden') {
             // Sort by hidden status: visible apps first, then hidden apps
             if (a.Hidden !== b.Hidden) {
                 return a.Hidden ? 1 : -1;
             }
         }
-        if(sortBy.value == 'group') {
+        
+        if (sortType === 'group') {
             // Sort by group: ungrouped first, then by group name
-            const aGroup = a.GroupId ? appGroups.value.find(g => g.id === a.GroupId)?.name || '' : '';
-            const bGroup = b.GroupId ? appGroups.value.find(g => g.id === b.GroupId)?.name || '' : '';
-            if (aGroup !== bGroup) {
-                // Ungrouped apps come first (empty string sorts before any text)
-                return aGroup.localeCompare(bGroup);
+            const aGroupName = a.GroupId ? currentGroups.find(g => g.id === a.GroupId)?.name || '' : '';
+            const bGroupName = b.GroupId ? currentGroups.find(g => g.id === b.GroupId)?.name || '' : '';
+            if (aGroupName !== bGroupName) {
+                return aGroupName.localeCompare(bGroupName);
             }
         }
+        
         // Default: sort by name
-        return a.Name.localeCompare(b.Name)
+        return a.Name.localeCompare(b.Name);
     });
 })
 
 onMounted(async () => {
     if (winboat.isOnline.value) {
         apps.value = await winboat.appMgr!.getApps();
-        appGroups.value = getAppGroups();
+        appGroups.value = [...getAppGroups()];
+        console.log('Initial load - Apps:', apps.value.length, 'Groups:', appGroups.value.length);
 
         // Run in background, won't impact UX
         await winboat.appMgr!.updateAppCache();
         if(winboat.appMgr!.appCache.length > apps.value.length) {
-            apps.value = winboat!.appMgr!.appCache;
+            apps.value = [...winboat!.appMgr!.appCache];
+            appGroups.value = [...getAppGroups()];
         }
     }
 
     watch(winboat.isOnline, async (newVal, _) => {
         if (newVal) {
             apps.value = await winboat.appMgr!.getApps();
-            appGroups.value = getAppGroups();
-            console.log("Apps list: ", apps.value);
+            appGroups.value = [...getAppGroups()];
+            console.log("Connection restored - Apps:", apps.value.length, "Groups:", appGroups.value.length);
         }
     })
 
@@ -491,8 +508,20 @@ async function deleteAppGroup(groupId: string) {
  * Assign app to group
  */
 async function assignAppToGroup(app: WinApp, groupId: string | null) {
-    winboat.appMgr!.assignAppToGroup(app, groupId);
-    apps.value = await winboat.appMgr!.getApps();
+    try {
+        winboat.appMgr!.assignAppToGroup(app, groupId);
+        
+        // Update the specific app in the reactive array immediately
+        const appIndex = apps.value.findIndex(a => a.Path === app.Path);
+        if (appIndex !== -1) {
+            apps.value[appIndex].GroupId = groupId;
+        }
+        
+        // Force reactivity update
+        apps.value = [...apps.value];
+    } catch (error) {
+        console.error('Failed to assign app to group:', error);
+    }
 }
 
 /**
@@ -508,10 +537,15 @@ function getAppGroups() {
 async function handleCreateGroup() {
     if (!newGroupName.value.trim()) return;
     
-    const group = await createAppGroup(newGroupName.value.trim());
-    appGroups.value = getAppGroups();
-    newGroupName.value = '';
-    showCreateGroupDialog.value = false;
+    try {
+        const group = await createAppGroup(newGroupName.value.trim());
+        // Force reactive update of groups
+        appGroups.value = [...getAppGroups()];
+        newGroupName.value = '';
+        console.log('Group created:', group, 'Total groups:', appGroups.value.length);
+    } catch (error) {
+        console.error('Failed to create group:', error);
+    }
 }
 
 /**
@@ -533,9 +567,17 @@ function getAppsInGroupCount(groupId: string): number {
  * Handle deleting a group
  */
 async function handleDeleteGroup(groupId: string) {
-    const success = await deleteAppGroup(groupId);
-    if (success) {
-        appGroups.value = getAppGroups();
+    try {
+        const success = await deleteAppGroup(groupId);
+        if (success) {
+            // Force reactive update of groups
+            appGroups.value = [...getAppGroups()];
+            // Also refresh apps to update GroupId properties
+            apps.value = [...await winboat.appMgr!.getApps()];
+            console.log('Group deleted, remaining groups:', appGroups.value.length);
+        }
+    } catch (error) {
+        console.error('Failed to delete group:', error);
     }
 }
 

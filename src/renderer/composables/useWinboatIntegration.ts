@@ -101,8 +101,17 @@ export const useWinboatIntegration = () => {
         try {
             logger.info('Initializing Winboat integration')
             
+            // Add initialization guard
+            if (!winboatInstance) {
+                logger.error('Winboat instance not available during initialization')
+                return
+            }
+            
             if (isContainerHealthy.value) {
+                console.log('Container is healthy, refreshing apps from Winboat')
                 await refreshAppsFromWinboat()
+            } else {
+                console.log('Container is not healthy, skipping app refresh')
             }
             
             // Set up watchers for winboat state changes
@@ -113,6 +122,7 @@ export const useWinboatIntegration = () => {
             
         } catch (error) {
             logger.error('Failed to initialize Winboat integration:', error)
+            throw error // Re-throw to allow caller to handle
         }
     }
     

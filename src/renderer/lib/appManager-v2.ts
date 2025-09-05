@@ -150,8 +150,20 @@ export class AppManagerV2 implements IAppManager {
     // Optimized app cache update - O(n) instead of O(n²)
     async updateAppCache(options: { forceRead: boolean } = { forceRead: false }): Promise<Result<void, Error>> {
         try {
-            const res = await nodeFetch(`${WINBOAT_GUEST_API}/apps`);
-            const newApps = await res.json() as any[];
+            logger.info('Starting app cache update...');
+            
+            let newApps: any[] = [];
+            
+            try {
+                const res = await nodeFetch(`${WINBOAT_GUEST_API}/apps`);
+                if (!res.ok) {
+                    throw new Error(`API returned status ${res.status}`);
+                }
+                newApps = await res.json() as any[];
+            } catch (apiError) {
+                logger.warn('Failed to fetch apps from API, using empty array:', apiError);
+                newApps = [];
+            }
             
             // Parse and validate each app
             const validatedApps: WinApp[] = [];

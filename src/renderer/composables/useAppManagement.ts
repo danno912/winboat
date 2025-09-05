@@ -1,5 +1,4 @@
 import { computed, ref, readonly } from 'vue'
-import { useMemoize, computedWithControl } from '@vueuse/core'
 import { useAppStore } from '../stores/appStore'
 import { useGroupStore } from '../stores/groupStore'
 import { useUIStore } from '../stores/uiStore'
@@ -21,11 +20,17 @@ export const useAppManagement = () => {
     
     // Initialize app manager if not already done
     if (!appManager) {
-        appManager = new AppManagerV2()
+        try {
+            appManager = new AppManagerV2()
+            logger.info('AppManagerV2 initialized successfully')
+        } catch (error) {
+            logger.error('Failed to initialize AppManagerV2:', error)
+            // Continue with null manager to prevent complete failure
+        }
     }
     
     // Memoized computed properties for better performance
-    const filteredApps = useMemoize(() => {
+    const filteredApps = computed(() => {
         let apps = appStore.apps
         
         // Apply visibility filter
@@ -43,9 +48,9 @@ export const useAppManagement = () => {
         }
         
         return apps
-    }, [appStore.apps, uiStore.showHidden, uiStore.debouncedSearch])
+    })
     
-    const sortedApps = useMemoize(() => {
+    const sortedApps = computed(() => {
         const apps = [...filteredApps.value]
         
         return apps.sort((a, b) => {
@@ -55,9 +60,9 @@ export const useAppManagement = () => {
             }
             return a.Name.localeCompare(b.Name)
         })
-    }, [filteredApps, uiStore.sortBy])
+    })
     
-    const groupedApps = useMemoize(() => {
+    const groupedApps = computed(() => {
         const groups = new Map<string | null, WinApp[]>()
         
         sortedApps.value.forEach(app => {
@@ -69,7 +74,7 @@ export const useAppManagement = () => {
         })
         
         return groups
-    }, [sortedApps])
+    })
     
     const visibleGroupedApps = computed(() => {
         const visibleGroups = new Map<string | null, WinApp[]>()
@@ -95,11 +100,18 @@ export const useAppManagement = () => {
     
     // Actions
     const refreshApps = async (): Promise<void> => {
+        if (!appManager) {
+            logger.error('AppManager not initialized, cannot refresh apps')
+            appStore.setError('App manager not available')
+            return
+        }
+        
         appStore.setLoading(true)
         try {
-            const result = await appManager!.getApps()
+            const result = await appManager.getApps()
             if (result.success) {
                 appStore.setApps(result.data)
+                logger.info(`Successfully refreshed ${result.data.length} apps`)
             } else {
                 appStore.setError('Failed to load apps')
                 logger.error('Failed to refresh apps')
@@ -114,8 +126,13 @@ export const useAppManagement = () => {
     }
     
     const updateAppCache = async (forceRead = false): Promise<boolean> => {
+        if (!appManager) {
+            logger.error('AppManager not initialized, cannot update app cache')
+            return false
+        }
+        
         try {
-            const result = await appManager!.updateAppCache({ forceRead })
+            const result = await appManager.updateAppCache({ forceRead })
             if (result.success) {
                 await refreshApps()
                 return true

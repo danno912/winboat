@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
-import { useDebouncedRef, useMemoize } from '@vueuse/core'
+import { useDebouncedRef } from '@vueuse/core'
 import type { WinApp, AppGroup, Result, AppNotFoundError, GroupNotFoundError } from '../../types'
 import { createLogger } from '../utils/log'
 import { WINBOAT_DIR } from '../lib/constants'
@@ -16,17 +16,15 @@ export const useAppStore = defineStore('apps', () => {
   const lastUpdate = ref<Date | null>(null)
   
   // Computed properties with memoization for performance
-  const visibleApps = useMemoize(() => 
-    apps.value.filter(app => !app.Hidden),
-    [apps]
+  const visibleApps = computed(() => 
+    apps.value.filter(app => !app.Hidden)
   )
   
-  const hiddenApps = useMemoize(() => 
-    apps.value.filter(app => app.Hidden),
-    [apps]
+  const hiddenApps = computed(() => 
+    apps.value.filter(app => app.Hidden)
   )
   
-  const appsByGroup = useMemoize(() => {
+  const appsByGroup = computed(() => {
     const grouped = new Map<string | null, WinApp[]>()
     
     apps.value.forEach(app => {
@@ -38,7 +36,7 @@ export const useAppStore = defineStore('apps', () => {
     })
     
     return grouped
-  }, [apps])
+  })
   
   const ungroupedApps = computed(() => appsByGroup.value.get(null) || [])
   

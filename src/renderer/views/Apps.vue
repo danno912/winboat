@@ -111,9 +111,9 @@
             </div>
         </dialog>
         
-        <div class="flex justify-between items-center mb-6">
+        <div class="flex flex-col gap-3 mb-6">
             <x-label class="text-neutral-300">Apps</x-label>
-            <div class="flex flex-row gap-2 justify-center items-center">
+            <div class="flex flex-row gap-2 flex-wrap items-center">
                 <!-- custom app plus btn -->
                 <x-button
                     class="flex flex-row gap-1 items-center"
@@ -174,6 +174,14 @@
                     <x-label>Search</x-label>
                 </x-input>
 
+                <!-- View Mode Toggle -->
+                <x-button @click="viewMode = viewMode === 'list' ? 'groups' : 'list'" 
+                         :class="{ 'toggled': viewMode === 'groups' }"
+                         v-if="appGroups.length > 0">
+                    <x-icon href="#view-list" class="qualifier"></x-icon>
+                    <x-label class="qualifier">{{ viewMode === 'list' ? 'Group View' : 'List View' }}</x-label>
+                </x-button>
+
                 <!-- Show/Hide toggle -->
                 <x-button @click="showHiddenApps = !showHiddenApps" :class="{ 'toggled': showHiddenApps }">
                     <x-icon href="#visibility" class="qualifier"></x-icon>
@@ -194,58 +202,170 @@
             </div>
         </div>
         <div v-if="winboat.isOnline.value" class="px-2">
-                <TransitionGroup v-if="apps.length" name="apps" tag="x-card" class="grid gap-4 bg-transparent border-none app-grid">
-                    <x-card
-                        v-for="app of computedApps" :key="app.Path"
-                        class="flex relative flex-row gap-2 justify-between items-center p-2 my-0 backdrop-blur-xl backdrop-brightness-150 cursor-pointer generic-hover bg-neutral-800/20"
-                        :class="{ 
-                            'bg-gradient-to-r from-yellow-600/20 bg-neutral-800/20': app.Source === 'custom',
-                            'opacity-50 bg-red-900/10 border border-red-500/30': app.Hidden && showHiddenApps
-                        }"
-                        @click="winboat.launchApp(app)"
-                    >
-                        <div class="flex flex-row items-center gap-2 w-[85%]">
-                            <div class="relative">
-                                <img class="rounded-md size-10" :src="`data:image/png;charset=utf-8;base64,${app.Icon}`" :class="{ 'grayscale': app.Hidden && showHiddenApps }"></img>
-                                <Icon v-if="app.Hidden && showHiddenApps" class="absolute -top-1 -right-1 size-4 text-red-400 bg-neutral-900 rounded-full" icon="mdi:eye-off"></Icon>
-                                <Icon v-if="app.GroupId && !app.Hidden" class="absolute -bottom-1 -right-1 size-3 text-blue-400 bg-neutral-900 rounded-full" icon="mdi:folder"></Icon>
-                            </div>
-                            <div class="flex flex-col">
-                                <x-label class="truncate text-ellipsis" :class="{ 'text-neutral-500 line-through': app.Hidden && showHiddenApps }">{{ app.Name }}</x-label>
-                                <x-label v-if="app.GroupId" class="text-xs text-blue-300 truncate">{{ getGroupName(app.GroupId) }}</x-label>
-                            </div>
+            <!-- List View -->
+            <TransitionGroup v-if="apps.length && viewMode === 'list'" name="apps" tag="x-card" class="grid gap-4 bg-transparent border-none app-grid">
+                <x-card
+                    v-for="app of computedApps" :key="app.Path"
+                    class="flex relative flex-row gap-2 justify-between items-center p-2 my-0 backdrop-blur-xl backdrop-brightness-150 cursor-pointer generic-hover bg-neutral-800/20"
+                    :class="{ 
+                        'bg-gradient-to-r from-yellow-600/20 bg-neutral-800/20': app.Source === 'custom',
+                        'bg-red-900/20 border border-red-500/50': app.Hidden && showHiddenApps
+                    }"
+                    @click="winboat.launchApp(app)"
+                >
+                    <div class="flex flex-row items-center gap-2 w-[85%]">
+                        <div class="relative">
+                            <img class="rounded-md size-10" :src="`data:image/png;charset=utf-8;base64,${app.Icon}`" :class="{ 'grayscale': app.Hidden && showHiddenApps }"></img>
+                            <Icon v-if="app.Hidden && showHiddenApps" class="absolute -top-1 -right-1 size-4 text-red-400 bg-neutral-900 rounded-full" icon="mdi:eye-off"></Icon>
+                            <Icon v-if="app.GroupId && !app.Hidden" class="absolute -bottom-1 -right-1 size-3 text-blue-400 bg-neutral-900 rounded-full" icon="mdi:folder"></Icon>
                         </div>
-                        <Icon icon="cuida:caret-right-outline"></Icon>
-                        <WBContextMenu>
-                            <!-- Always show hide/show option -->
-                            <WBMenuItem @click.stop="toggleAppVisibility(app)">
-                                <Icon class="size-4" :icon="app.Hidden ? 'mdi:eye' : 'mdi:eye-off'"></Icon>
-                                <x-label>{{ app.Hidden ? 'Show App' : 'Hide App' }}</x-label>
+                        <div class="flex flex-col">
+                            <x-label class="truncate text-ellipsis" :class="{ 'text-red-300': app.Hidden && showHiddenApps }">{{ app.Name }}</x-label>
+                            <x-label v-if="app.GroupId" class="text-xs truncate" :class="app.Hidden && showHiddenApps ? 'text-red-200' : 'text-blue-300'">{{ getGroupName(app.GroupId) }}</x-label>
+                        </div>
+                    </div>
+                    <Icon icon="cuida:caret-right-outline"></Icon>
+                    <WBContextMenu>
+                        <!-- Always show hide/show option -->
+                        <WBMenuItem @click.stop="toggleAppVisibility(app)">
+                            <Icon class="size-4" :icon="app.Hidden ? 'mdi:eye' : 'mdi:eye-off'"></Icon>
+                            <x-label>{{ app.Hidden ? 'Show App' : 'Hide App' }}</x-label>
+                        </WBMenuItem>
+                        
+                        <!-- Group management options -->
+                        <template v-if="appGroups.length > 0">
+                            <WBMenuItem v-if="app.GroupId" @click.stop="assignAppToGroup(app, null)">
+                                <Icon class="size-4" icon="mdi:folder-remove"></Icon>
+                                <x-label>Remove from Group</x-label>
                             </WBMenuItem>
-                            
-                            <!-- Group management options -->
-                            <template v-if="appGroups.length > 0">
-                                <WBMenuItem v-if="app.GroupId" @click.stop="assignAppToGroup(app, null)">
-                                    <Icon class="size-4" icon="mdi:folder-remove"></Icon>
-                                    <x-label>Remove from Group</x-label>
-                                </WBMenuItem>
-                                <WBMenuItem v-for="group in appGroups" :key="`add-${group.id}`" 
-                                           v-show="app.GroupId !== group.id"
-                                           @click.stop="assignAppToGroup(app, group.id)">
-                                    <Icon class="size-4" icon="mdi:folder-plus"></Icon>
-                                    <x-label>Add to {{ group.name }}</x-label>
-                                </WBMenuItem>
-                            </template>
-                            
-                            <!-- Custom app removal -->
-                            <WBMenuItem v-if="app.Source === 'custom'" @click.stop="removeCustomApp(app)">
-                                <Icon class="size-4" icon="mdi:trash-can"></Icon>
-                                <x-label>Remove Custom App</x-label>
+                            <WBMenuItem v-for="group in appGroups" :key="`add-${group.id}`" 
+                                       v-show="app.GroupId !== group.id"
+                                       @click.stop="assignAppToGroup(app, group.id)">
+                                <Icon class="size-4" icon="mdi:folder-plus"></Icon>
+                                <x-label>Add to {{ group.name }}</x-label>
                             </WBMenuItem>
-                        </WBContextMenu>
+                        </template>
+                        
+                        <!-- Custom app removal -->
+                        <WBMenuItem v-if="app.Source === 'custom'" @click.stop="removeCustomApp(app)">
+                            <Icon class="size-4" icon="mdi:trash-can"></Icon>
+                            <x-label>Remove Custom App</x-label>
+                        </WBMenuItem>
+                    </WBContextMenu>
+                </x-card>
+            </TransitionGroup>
+
+            <!-- Group View -->
+            <div v-if="apps.length && viewMode === 'groups'" class="space-y-6">
+                <!-- Groups -->
+                <div v-for="[groupId, groupData] in groupedApps.sortedGroups" :key="groupId" class="space-y-2">
+                    <div class="flex items-center gap-2 px-2">
+                        <Icon class="size-4 text-blue-400" icon="mdi:folder"></Icon>
+                        <h3 class="text-lg font-semibold text-blue-300">{{ groupData.group.name }}</h3>
+                        <span class="text-sm text-neutral-400">({{ groupData.apps.length }} apps)</span>
+                    </div>
+                    <x-card class="grid gap-3 p-4 bg-transparent border border-blue-500/20 app-grid">
+                        <x-card
+                            v-for="app of groupData.apps" :key="app.Path"
+                            class="flex relative flex-row gap-2 justify-between items-center p-2 my-0 backdrop-blur-xl backdrop-brightness-150 cursor-pointer generic-hover bg-neutral-800/20"
+                            :class="{ 
+                                'bg-gradient-to-r from-yellow-600/20 bg-neutral-800/20': app.Source === 'custom',
+                                'bg-red-900/20 border border-red-500/50': app.Hidden && showHiddenApps
+                            }"
+                            @click="winboat.launchApp(app)"
+                        >
+                            <div class="flex flex-row items-center gap-2 w-[85%]">
+                                <div class="relative">
+                                    <img class="rounded-md size-10" :src="`data:image/png;charset=utf-8;base64,${app.Icon}`" :class="{ 'grayscale': app.Hidden && showHiddenApps }"></img>
+                                    <Icon v-if="app.Hidden && showHiddenApps" class="absolute -top-1 -right-1 size-4 text-red-400 bg-neutral-900 rounded-full" icon="mdi:eye-off"></Icon>
+                                </div>
+                                <x-label class="truncate text-ellipsis" :class="{ 'text-red-300': app.Hidden && showHiddenApps }">{{ app.Name }}</x-label>
+                            </div>
+                            <Icon icon="cuida:caret-right-outline"></Icon>
+                            <WBContextMenu>
+                                <!-- Always show hide/show option -->
+                                <WBMenuItem @click.stop="toggleAppVisibility(app)">
+                                    <Icon class="size-4" :icon="app.Hidden ? 'mdi:eye' : 'mdi:eye-off'"></Icon>
+                                    <x-label>{{ app.Hidden ? 'Show App' : 'Hide App' }}</x-label>
+                                </WBMenuItem>
+                                
+                                <!-- Group management options -->
+                                <template v-if="appGroups.length > 0">
+                                    <WBMenuItem v-if="app.GroupId" @click.stop="assignAppToGroup(app, null)">
+                                        <Icon class="size-4" icon="mdi:folder-remove"></Icon>
+                                        <x-label>Remove from Group</x-label>
+                                    </WBMenuItem>
+                                    <WBMenuItem v-for="group in appGroups" :key="`add-${group.id}`" 
+                                               v-show="app.GroupId !== group.id"
+                                               @click.stop="assignAppToGroup(app, group.id)">
+                                        <Icon class="size-4" icon="mdi:folder-plus"></Icon>
+                                        <x-label>Add to {{ group.name }}</x-label>
+                                    </WBMenuItem>
+                                </template>
+                                
+                                <!-- Custom app removal -->
+                                <WBMenuItem v-if="app.Source === 'custom'" @click.stop="removeCustomApp(app)">
+                                    <Icon class="size-4" icon="mdi:trash-can"></Icon>
+                                    <x-label>Remove Custom App</x-label>
+                                </WBMenuItem>
+                            </WBContextMenu>
+                        </x-card>
                     </x-card>
-                </TransitionGroup>
-            <div v-else class="flex justify-center items-center mt-40">
+                </div>
+
+                <!-- Ungrouped Apps -->
+                <div v-if="groupedApps.ungrouped.length > 0" class="space-y-2">
+                    <div class="flex items-center gap-2 px-2">
+                        <Icon class="size-4 text-neutral-400" icon="mdi:folder-outline"></Icon>
+                        <h3 class="text-lg font-semibold text-neutral-300">Ungrouped</h3>
+                        <span class="text-sm text-neutral-400">({{ groupedApps.ungrouped.length }} apps)</span>
+                    </div>
+                    <x-card class="grid gap-3 p-4 bg-transparent border border-neutral-500/20 app-grid">
+                        <x-card
+                            v-for="app of groupedApps.ungrouped" :key="app.Path"
+                            class="flex relative flex-row gap-2 justify-between items-center p-2 my-0 backdrop-blur-xl backdrop-brightness-150 cursor-pointer generic-hover bg-neutral-800/20"
+                            :class="{ 
+                                'bg-gradient-to-r from-yellow-600/20 bg-neutral-800/20': app.Source === 'custom',
+                                'bg-red-900/20 border border-red-500/50': app.Hidden && showHiddenApps
+                            }"
+                            @click="winboat.launchApp(app)"
+                        >
+                            <div class="flex flex-row items-center gap-2 w-[85%]">
+                                <div class="relative">
+                                    <img class="rounded-md size-10" :src="`data:image/png;charset=utf-8;base64,${app.Icon}`" :class="{ 'grayscale': app.Hidden && showHiddenApps }"></img>
+                                    <Icon v-if="app.Hidden && showHiddenApps" class="absolute -top-1 -right-1 size-4 text-red-400 bg-neutral-900 rounded-full" icon="mdi:eye-off"></Icon>
+                                </div>
+                                <x-label class="truncate text-ellipsis" :class="{ 'text-red-300': app.Hidden && showHiddenApps }">{{ app.Name }}</x-label>
+                            </div>
+                            <Icon icon="cuida:caret-right-outline"></Icon>
+                            <WBContextMenu>
+                                <!-- Always show hide/show option -->
+                                <WBMenuItem @click.stop="toggleAppVisibility(app)">
+                                    <Icon class="size-4" :icon="app.Hidden ? 'mdi:eye' : 'mdi:eye-off'"></Icon>
+                                    <x-label>{{ app.Hidden ? 'Show App' : 'Hide App' }}</x-label>
+                                </WBMenuItem>
+                                
+                                <!-- Group management options -->
+                                <template v-if="appGroups.length > 0">
+                                    <WBMenuItem v-for="group in appGroups" :key="`add-${group.id}`" 
+                                               @click.stop="assignAppToGroup(app, group.id)">
+                                        <Icon class="size-4" icon="mdi:folder-plus"></Icon>
+                                        <x-label>Add to {{ group.name }}</x-label>
+                                    </WBMenuItem>
+                                </template>
+                                
+                                <!-- Custom app removal -->
+                                <WBMenuItem v-if="app.Source === 'custom'" @click.stop="removeCustomApp(app)">
+                                    <Icon class="size-4" icon="mdi:trash-can"></Icon>
+                                    <x-label>Remove Custom App</x-label>
+                                </WBMenuItem>
+                            </WBContextMenu>
+                        </x-card>
+                    </x-card>
+                </div>
+            </div>
+            <!-- Loading spinner only when no apps are loaded yet -->
+            <div v-if="!apps.length" class="flex justify-center items-center mt-40">
                 <x-throbber class="w-16 h-16"></x-throbber>
             </div>
         </div>
@@ -334,18 +454,84 @@ const computedApps = computed(() => {
         }
         
         if (sortType === 'group') {
-            // Sort by group: ungrouped first, then by group name
-            const aGroupName = a.GroupId ? currentGroups.find(g => g.id === a.GroupId)?.name || '' : '';
-            const bGroupName = b.GroupId ? currentGroups.find(g => g.id === b.GroupId)?.name || '' : '';
-            if (aGroupName !== bGroupName) {
-                return aGroupName.localeCompare(bGroupName);
+            // Sort by group: grouped apps first (by group name), then ungrouped apps last
+            const aHasGroup = !!a.GroupId;
+            const bHasGroup = !!b.GroupId;
+            
+            if (aHasGroup && !bHasGroup) return -1; // a is grouped, b is not -> a comes first
+            if (!aHasGroup && bHasGroup) return 1;  // a is not grouped, b is -> b comes first
+            
+            if (aHasGroup && bHasGroup) {
+                // Both are grouped, sort by group name
+                const aGroupName = currentGroups.find(g => g.id === a.GroupId)?.name || '';
+                const bGroupName = currentGroups.find(g => g.id === b.GroupId)?.name || '';
+                const groupComparison = aGroupName.localeCompare(bGroupName);
+                if (groupComparison !== 0) return groupComparison;
             }
+            // If same group status or same group, fall through to name sorting
         }
         
         // Default: sort by name
         return a.Name.localeCompare(b.Name);
     });
 })
+
+// Grouped view computed properties
+const groupedApps = computed(() => {
+    const currentApps = [...apps.value];
+    const currentGroups = [...appGroups.value];
+    
+    // Apply visibility filter
+    let filteredApps = currentApps;
+    if (!showHiddenApps.value) {
+        filteredApps = filteredApps.filter(app => !app.Hidden);
+    }
+    
+    // Apply search filter
+    if (searchInput.value && searchInput.value.trim()) {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        filteredApps = filteredApps.filter(app => 
+            app.Name.toLowerCase().includes(searchTerm)
+        );
+    }
+    
+    // Group apps by their GroupId
+    const grouped = {
+        groups: {} as { [key: string]: { group: any, apps: any[] } },
+        ungrouped: [] as any[]
+    };
+    
+    filteredApps.forEach(app => {
+        if (app.GroupId) {
+            if (!grouped.groups[app.GroupId]) {
+                const group = currentGroups.find(g => g.id === app.GroupId);
+                if (group) {
+                    grouped.groups[app.GroupId] = { group, apps: [] };
+                }
+            }
+            if (grouped.groups[app.GroupId]) {
+                grouped.groups[app.GroupId].apps.push(app);
+            }
+        } else {
+            grouped.ungrouped.push(app);
+        }
+    });
+    
+    // Sort apps within each group
+    Object.keys(grouped.groups).forEach(groupId => {
+        grouped.groups[groupId].apps.sort((a, b) => a.Name.localeCompare(b.Name));
+    });
+    
+    // Sort ungrouped apps
+    grouped.ungrouped.sort((a, b) => a.Name.localeCompare(b.Name));
+    
+    // Sort groups by name
+    const sortedGroupEntries = Object.entries(grouped.groups).sort(([, a], [, b]) => 
+        a.group.name.localeCompare(b.group.name)
+    );
+    
+    return { sortedGroups: sortedGroupEntries, ungrouped: grouped.ungrouped };
+});
 
 onMounted(async () => {
     if (winboat.isOnline.value) {
@@ -482,6 +668,8 @@ async function toggleAppVisibility(app: WinApp) {
     const appIndex = apps.value.findIndex(a => a.Path === app.Path);
     if (appIndex !== -1) {
         apps.value[appIndex].Hidden = newHiddenState;
+        // Force reactivity update
+        apps.value = [...apps.value];
     }
 }
 

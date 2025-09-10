@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 )
 
@@ -41,6 +42,7 @@ type Metrics struct {
 		Total      uint64  `json:"total"`      // MB
 		Percentage float64 `json:"percentage"` // %
 	} `json:"disk"`
+	Uptime uint64 `json:"uptime"` // Uptime in seconds
 }
 
 func getApps(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +104,13 @@ func getMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get system uptime
+	uptime, err := host.Uptime()
+	if err != nil {
+		log.Printf("Failed to get uptime: %v", err)
+		uptime = 0
+	}
+
 	// Build metrics struct
 	metrics := Metrics{}
 	metrics.CPU.Usage = cpuPercent[0]              // Total CPU usage
@@ -112,6 +121,7 @@ func getMetrics(w http.ResponseWriter, r *http.Request) {
 	metrics.Disk.Used = diskInfo.Used / 1024 / 1024
 	metrics.Disk.Total = diskInfo.Total / 1024 / 1024
 	metrics.Disk.Percentage = diskInfo.UsedPercent
+	metrics.Uptime = uptime
 
 	// Send it
 	w.Header().Set("Content-Type", "application/json")
@@ -220,6 +230,33 @@ func getIcon(w http.ResponseWriter, r *http.Request) {
 	w.Write(output)
 }
 
+func restartOS(w http.ResponseWriter, r *http.Request) {
+	// Initiate Windows restart
+	log.Println("Initiating Windows restart...")
+	
+	// Try PowerShell Restart-Computer command first (more reliable)
+	cmd := exec.Command("powershell", "-Command", "Restart-Computer -Force")
+	
+	// Start the command without waiting for it to complete
+	err := cmd.Start()
+	if err != nil {
+		log.Printf("PowerShell restart failed, trying shutdown command: %v", err)
+		// Fallback to shutdown command
+		cmd = exec.Command("shutdown", "/r", "/f", "/t", "1")
+		err = cmd.Start()
+		if err != nil {
+			http.Error(w, "Failed to initiate restart: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	
+	// Send successful response immediately
+	response := map[string]string{"status": "restart_initiated"}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
 func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/apps", getApps).Methods("GET")
@@ -229,6 +266,7 @@ func main() {
 	r.HandleFunc("/rdp/status", getRdpConnectedStatus).Methods("GET")
 	r.HandleFunc("/update", applyUpdate).Methods("POST")
 	r.HandleFunc("/get-icon", getIcon).Methods("POST")
+	r.HandleFunc("/restart", restartOS).Methods("POST")
 
 	log.Println("Starting WinBoat Guest Server on :7148...")
 	if err := http.ListenAndServe(":7148", r); err != nil {

@@ -31,6 +31,8 @@ export type WinApp = {
     Icon: string;
     Source: string;
     Usage?: number;
+    Hidden?: boolean;
+    GroupId?: string | null;
 }
 
 export type ComposeConfig = {
@@ -79,7 +81,8 @@ export type Metrics = {
         used: number, // Disk Usage in MB (e.g. 29491)
         total: number, // Disk Total in MB (e.g. 102400)
         percentage: number // Disk Usage in percentage (e.g. 70%)
-    }
+    },
+    uptime?: number // Uptime in seconds (optional for backward compatibility)
 }
 
 export type GuestServerVersion = {

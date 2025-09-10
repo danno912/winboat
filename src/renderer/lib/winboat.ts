@@ -28,14 +28,18 @@ const presetApps: WinApp[] = [
         Icon: AppIcons[InternalApps.WINDOWS_DESKTOP],
         Source: "internal",
         Path: InternalApps.WINDOWS_DESKTOP,
-        Usage: 0 
+        Usage: 0,
+        Hidden: false,
+        GroupId: null
     },
     {
         Name: "⚙️ Windows Explorer",
         Icon: AppIcons[InternalApps.WINDOWS_EXPLORER],
         Source: "internal",
         Path: "%windir%\\explorer.exe",
-        Usage: 0
+        Usage: 0,
+        Hidden: false,
+        GroupId: null
     }
 ]
 
@@ -72,8 +76,16 @@ class AppManager {
         if(this.appCache.values.length == newApps.length && !options.forceRead) return
 
         for(const appIdx in newApps) {
-            newApps[appIdx].Usage = this.appCache.find((app) => app.Name == newApps[appIdx].Name)?.Usage || 0;
-            this.appUsageCache[newApps[appIdx].Name] = newApps[appIdx].Usage;
+            const app = newApps[appIdx];
+            // Preserve usage count
+            app.Usage = this.appCache.find((cachedApp) => cachedApp.Name == app.Name)?.Usage || 0;
+            this.appUsageCache[app.Name] = app.Usage;
+            
+            // Set hidden state from config
+            app.Hidden = this.#wbConfig!.isAppHidden(app.Path);
+            
+            // Set group ID from config
+            app.GroupId = this.#wbConfig!.config.appGroupMappings[app.Path] || null;
         }
 
         this.appCache = newApps;
@@ -131,7 +143,9 @@ class AppManager {
             Path: path,
             Icon: icon,
             Source: "custom",
-            Usage: 0
+            Usage: 0,
+            Hidden: false,
+            GroupId: null
         }
         this.appCache.push(customWinApp);
         this.appUsageCache[name] = 0;
@@ -149,11 +163,94 @@ class AppManager {
         await this.writeToDisk();
         this.#wbConfig!.config.customApps = this.#wbConfig!.config.customApps.filter((a) => a.Name !== app.Name);
     }
+
+    /**
+     * Toggle app visibility (hide/show)
+     * @param app The app to toggle
+     */
+    toggleAppVisibility(app: WinApp): boolean {
+        const newHiddenState = this.#wbConfig!.toggleAppVisibility(app.Path);
+        // Update the app in cache
+        const cachedApp = this.appCache.find(a => a.Path === app.Path);
+        if (cachedApp) {
+            cachedApp.Hidden = newHiddenState;
+        }
+        return newHiddenState;
+    }
+
+    /**
+     * Get only visible apps
+     */
+    getVisibleApps(): WinApp[] {
+        return this.appCache.filter(app => !app.Hidden);
+    }
+
+    /**
+     * Get only hidden apps
+     */
+    getHiddenApps(): WinApp[] {
+        return this.appCache.filter(app => app.Hidden);
+    }
+
+    /**
+     * Create a new app group
+     */
+    createAppGroup(name: string, options?: { icon?: string; color?: string }) {
+        return this.#wbConfig!.createAppGroup(name, options);
+    }
+
+    /**
+     * Delete an app group
+     */
+    deleteAppGroup(groupId: string): boolean {
+        const success = this.#wbConfig!.deleteAppGroup(groupId);
+        // Update cache - remove group IDs from apps
+        this.appCache.forEach(app => {
+            if (app.GroupId === groupId) {
+                app.GroupId = null;
+            }
+        });
+        return success;
+    }
+
+    /**
+     * Assign app to group
+     */
+    assignAppToGroup(app: WinApp, groupId: string | null): void {
+        this.#wbConfig!.assignAppToGroup(app.Path, groupId);
+        // Update cache
+        const cachedApp = this.appCache.find(a => a.Path === app.Path);
+        if (cachedApp) {
+            cachedApp.GroupId = groupId;
+        }
+    }
+
+    /**
+     * Get all app groups
+     */
+    getAppGroups() {
+        return this.#wbConfig!.getAppGroups();
+    }
+
+    /**
+     * Get apps in a specific group
+     */
+    getAppsInGroup(groupId: string): WinApp[] {
+        return this.appCache.filter(app => app.GroupId === groupId);
+    }
+
+    /**
+     * Get ungrouped apps
+     */
+    getUngroupedApps(): WinApp[] {
+        return this.appCache.filter(app => !app.GroupId && !app.Hidden);
+    }
 }
 
 export class Winboat {
     #healthInterval: NodeJS.Timeout | null = null;
     isOnline: Ref<boolean> = ref(false);
+    guestAPIStartTime: Ref<number | null> = ref(null);
     isUpdatingGuestServer: Ref<boolean> = ref(false);
     #containerInterval: NodeJS.Timeout | null = null;
     containerStatus: Ref<ContainerStatusValue> = ref(ContainerStatus.Exited)
@@ -226,10 +323,15 @@ export class Winboat {
             const _isOnline = await this.getHealth();
             if (_isOnline !== this.isOnline.value) {
                 this.isOnline.value = _isOnline;
-                logger.info(`Winboat Guest API went ${this.isOnline ? 'online' : 'offline'}`);
+                logger.info(`Winboat Guest API went ${this.isOnline.value ? 'online' : 'offline'}`);
 
                 if (this.isOnline.value) {
+                    // Track when the API comes online
+                    this.guestAPIStartTime.value = Date.now();
                     await this.checkVersionAndUpdateGuestServer();
+                } else {
+                    // Clear start time when offline
+                    this.guestAPIStartTime.value = null;
                 }
             }
         }, HEALTH_WAIT_MS);
@@ -313,6 +415,26 @@ export class Winboat {
         } catch(e) {
             console.error("Failed to get container status, most likely we are in the process of resetting");
             return ContainerStatus.Dead;
+        }
+    }
+    
+    async getContainerUptime(): Promise<string> {
+        try {
+            // Get container start time using docker inspect
+            const { stdout: startTimeStr } = await execAsync(`docker inspect --format="{{.State.StartedAt}}" WinBoat`);
+            const startTime = new Date(startTimeStr.trim()).getTime();
+            
+            if (isNaN(startTime)) {
+                return "";
+            }
+            
+            const uptimeMs = Date.now() - startTime;
+            const uptimeSeconds = Math.floor(uptimeMs / 1000);
+            
+            return this.formatUptime(uptimeSeconds);
+        } catch(e) {
+            console.error("Failed to get container uptime:", e);
+            return "";
         }
     }
 
@@ -403,6 +525,80 @@ export class Winboat {
         }
         logger.info("Successfully unpaused WinBoat container");
         this.containerActionLoading.value = false;
+    }
+
+    async restartGuestOS() {
+        logger.info("Restarting Windows guest OS...");
+        
+        if (!this.isOnline.value) {
+            logger.error("Cannot restart: Guest API is offline");
+            return;
+        }
+        
+        try {
+            // Use the guest API restart endpoint
+            const response = await nodeFetch(`${WINBOAT_GUEST_API}/restart`, { 
+                method: 'POST',
+                timeout: 10000 // 10 second timeout
+            });
+            
+            if (response.ok) {
+                logger.info("Windows restart initiated successfully via Guest API");
+                
+                // Set status to offline immediately since Windows is restarting
+                this.isOnline.value = false;
+                this.guestAPIStartTime.value = null;
+                
+                // Wait for Windows and Guest API to come back online
+                this.waitForGuestAPIAfterRestart();
+            } else {
+                throw new Error(`Guest API restart failed: ${response.status}`);
+            }
+            
+        } catch (error) {
+            logger.error("Failed to restart Windows guest OS:", error);
+            console.error("Error restarting guest OS:", error);
+        }
+    }
+
+    private async waitForGuestAPIAfterRestart() {
+        logger.info("Waiting for Windows and Guest API to come back online after restart...");
+        
+        const maxAttempts = 60; // Try for up to 5 minutes
+        let attempts = 0;
+        
+        const checkAPI = async (): Promise<boolean> => {
+            try {
+                const response = await nodeFetch(`${WINBOAT_GUEST_API}/apps`);
+                return response.ok;
+            } catch {
+                return false;
+            }
+        };
+        
+        const poll = async () => {
+            attempts++;
+            const isOnline = await checkAPI();
+            
+            if (isOnline) {
+                logger.info(`Guest API is back online after ${attempts * 5} seconds`);
+                this.isOnline.value = true;
+                this.guestAPIStartTime.value = Date.now();
+                await this.updateContainerStatus();
+                return;
+            }
+            
+            if (attempts >= maxAttempts) {
+                logger.error("Guest API did not come back online within timeout period");
+                return;
+            }
+            
+            // Wait 5 seconds before next attempt
+            setTimeout(poll, 5000);
+        };
+        
+        // Start polling after initial 10 second delay (Windows needs time to boot)
+        setTimeout(poll, 10000);
     }
 
     async replaceCompose(composeConfig: ComposeConfig) {
@@ -575,5 +771,44 @@ export class Winboat {
 
         // Done!
         this.isUpdatingGuestServer.value = false;
+    }
+
+    getUptime(): string {
+        if (!this.isOnline.value) {
+            return "Offline";
+        }
+        
+        // Use actual Windows uptime from metrics if available
+        const uptimeSeconds = this.metrics.value.uptime || 0;
+        
+        if (uptimeSeconds === 0) {
+            // Fallback to API connection time if uptime not available
+            if (!this.guestAPIStartTime.value) {
+                return "Offline";
+            }
+            const uptimeMs = Date.now() - this.guestAPIStartTime.value;
+            const seconds = Math.floor(uptimeMs / 1000);
+            return this.formatUptime(seconds);
+        }
+        
+        return this.formatUptime(uptimeSeconds);
+    }
+    
+    private formatUptime(uptimeSeconds: number): string {
+        if (uptimeSeconds < 60) {
+            return `${uptimeSeconds}s`;
+        } else if (uptimeSeconds < 3600) {
+            const minutes = Math.floor(uptimeSeconds / 60);
+            const seconds = uptimeSeconds % 60;
+            return `${minutes}m ${seconds}s`;
+        } else if (uptimeSeconds < 86400) {
+            const hours = Math.floor(uptimeSeconds / 3600);
+            const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+            return `${hours}h ${minutes}m`;
+        } else {
+            const days = Math.floor(uptimeSeconds / 86400);
+            const hours = Math.floor((uptimeSeconds % 86400) / 3600);
+            return `${days}d ${hours}h`;
+        }
     }
 }

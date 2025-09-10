@@ -155,13 +155,35 @@
                             </h1>
                         </div>
                         <p class="text-neutral-400 text-[0.9rem] !pt-0 !mt-0">
-                            If enabled, a banner will appear when the RDP session is connected (may cause high CPU usage, disable if you notice performance issues)
+                            <strong>Connection Status Monitoring:</strong> Checks if any RDP connection is active (polls Windows Guest API every 1 second - high CPU usage)
                         </p>
                     </div>
                     <div class="flex flex-row justify-center items-center gap-2">
                         <x-switch
                             :toggled="wbConfig.config.rdpMonitoringEnabled"
                             @toggle="(_: any) => wbConfig.config.rdpMonitoringEnabled = !wbConfig.config.rdpMonitoringEnabled"
+                            size="large"
+                        ></x-switch>
+                    </div>
+                </x-card>
+
+                <!-- Session Management Configuration -->
+                <x-card class="flex flex-row w-full justify-between items-center px-4 py-3 my-0 bg-neutral-800/20 backdrop-brightness-150 backdrop-blur-xl mb-6">
+                    <div>
+                        <div class="flex flex-row items-center gap-2 mb-2">
+                            <Icon class="text-purple-400 inline-flex size-8" icon="mdi:monitor-multiple"></Icon>
+                            <h1 class="text-lg my-0 font-semibold">
+                                Session Management
+                            </h1>
+                        </div>
+                        <p class="text-neutral-400 text-[0.9rem] !pt-0 !mt-0">
+                            <strong>Active Session Tracking:</strong> Shows detailed information about running Windows apps (scans local processes every 5 seconds - low CPU usage)
+                        </p>
+                    </div>
+                    <div class="flex flex-row justify-center items-center gap-2">
+                        <x-switch
+                            :toggled="wbConfig.config.sessionManagementEnabled"
+                            @toggle="(_: any) => wbConfig.config.sessionManagementEnabled = !wbConfig.config.sessionManagementEnabled"
                             size="large"
                         ></x-switch>
                     </div>

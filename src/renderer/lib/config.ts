@@ -7,14 +7,22 @@ export type WinboatConfigObj = {
     scale: number;
     smartcardEnabled: boolean
     rdpMonitoringEnabled: boolean
+    sessionManagementEnabled: boolean
     customApps: WinApp[]
+    hiddenApps: string[] // Array of app paths that are hidden
+    appGroups: { id: string; name: string; icon?: string; color?: string; collapsed?: boolean; order?: number; createdAt: string; updatedAt: string }[]
+    appGroupMappings: { [appPath: string]: string } // Maps app path to group id
 };
 
 const defaultConfig: WinboatConfigObj = {
     scale: 100,
     smartcardEnabled: false,
     rdpMonitoringEnabled: false,
-    customApps: []
+    sessionManagementEnabled: true,
+    customApps: [],
+    hiddenApps: [],
+    appGroups: [],
+    appGroupMappings: {}
 };
 
 let instance: WinboatConfig | null = null;
@@ -88,5 +96,85 @@ export class WinboatConfig {
             console.error("Config’s borked, outputting the default:", e);
             return { ...defaultConfig };
         }
+    }
+
+    // App visibility management
+    isAppHidden(appPath: string): boolean {
+        return this.#configData.hiddenApps.includes(appPath);
+    }
+
+    toggleAppVisibility(appPath: string): boolean {
+        const isCurrentlyHidden = this.isAppHidden(appPath);
+        if (isCurrentlyHidden) {
+            // Show the app
+            this.#configData.hiddenApps = this.#configData.hiddenApps.filter(path => path !== appPath);
+        } else {
+            // Hide the app
+            this.#configData.hiddenApps.push(appPath);
+        }
+        this.writeConfig();
+        return !isCurrentlyHidden; // Return new hidden state
+    }
+
+    hideApp(appPath: string): void {
+        if (!this.isAppHidden(appPath)) {
+            this.#configData.hiddenApps.push(appPath);
+            this.writeConfig();
+        }
+    }
+
+    showApp(appPath: string): void {
+        this.#configData.hiddenApps = this.#configData.hiddenApps.filter(path => path !== appPath);
+        this.writeConfig();
+    }
+
+    // App groups management
+    createAppGroup(name: string, options: { icon?: string; color?: string } = {}): { id: string; name: string; icon?: string; color?: string; collapsed?: boolean; order?: number; createdAt: string; updatedAt: string } {
+        const crypto = require('crypto');
+        const newGroup = {
+            id: crypto.randomUUID(),
+            name,
+            icon: options.icon,
+            color: options.color,
+            collapsed: false,
+            order: this.#configData.appGroups.length,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+        this.#configData.appGroups.push(newGroup);
+        this.writeConfig();
+        return newGroup;
+    }
+
+    deleteAppGroup(groupId: string): boolean {
+        const initialLength = this.#configData.appGroups.length;
+        this.#configData.appGroups = this.#configData.appGroups.filter(group => group.id !== groupId);
+        
+        // Remove all app mappings for this group
+        for (const appPath in this.#configData.appGroupMappings) {
+            if (this.#configData.appGroupMappings[appPath] === groupId) {
+                delete this.#configData.appGroupMappings[appPath];
+            }
+        }
+        
+        this.writeConfig();
+        return this.#configData.appGroups.length < initialLength;
+    }
+
+    assignAppToGroup(appPath: string, groupId: string | null): void {
+        if (groupId === null) {
+            delete this.#configData.appGroupMappings[appPath];
+        } else {
+            this.#configData.appGroupMappings[appPath] = groupId;
+        }
+        this.writeConfig();
+    }
+
+    getAppGroup(groupId: string) {
+        return this.#configData.appGroups.find(group => group.id === groupId);
+    }
+
+    getAppGroups() {
+        return [...this.#configData.appGroups].sort((a, b) => a.order - b.order);
     }
 }

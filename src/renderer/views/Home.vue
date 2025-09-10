@@ -11,8 +11,14 @@
 
                 <!-- Status Text -->
                 <div>
-                    <h1 class="text-3xl mt-0 mb-6">{{ WINDOWS_VERSIONS[compose?.services.windows.environment.VERSION ??
-                        '11'] ?? 'Unknown' }}</h1>
+                    <div class="flex flex-row items-baseline gap-4 mb-6 flex-nowrap">
+                        <h1 class="text-2xl mt-0 mb-0 whitespace-nowrap">{{ WINDOWS_VERSIONS[compose?.services.windows.environment.VERSION ??
+                            '11'] ?? 'Unknown' }}</h1>
+                        <div class="flex flex-row items-center gap-2 text-blue-300 whitespace-nowrap">
+                            <Icon class="size-4" icon="mdi:clock-outline"></Icon>
+                            <span class="text-base font-medium">Uptime: {{ uptime }}</span>
+                        </div>
+                    </div>
                     <div class="flex flex-row items-center gap-1.5 mb-1"
                         :class="{ 'text-green-500': winboat.isOnline.value, 'text-red-500': !winboat.isOnline.value }">
                         <Icon class="size-7" icon="material-symbols:api"></Icon>
@@ -29,7 +35,7 @@
                     }">
                         <Icon class="size-7" icon="mdi:docker"></Icon>
                         <p class="!my-0 font-semibold text-lg">
-                            Container - {{ capitalizeFirstLetter(winboat.containerStatus.value) }}
+                            Container - {{ capitalizeFirstLetter(winboat.containerStatus.value) }}{{ containerUptime ? ` (${containerUptime})` : '' }}
                         </p>
                     </div>
                 </div>
@@ -46,6 +52,11 @@
                 <button title="Stop" class="generic-hover" v-if="winboat.containerStatus.value === ContainerStatus.Running"
                     @click="winboat.stopContainer()">
                     <Icon class="w-20 h-20 text-red-300" icon="mingcute:stop-fill"></Icon>
+                </button>
+
+                <button title="Restart Guest OS" class="generic-hover" v-if="winboat.containerStatus.value === ContainerStatus.Running"
+                    @click="winboat.restartGuestOS()">
+                    <Icon class="w-20 h-20 text-blue-300" icon="mdi:restart"></Icon>
                 </button>
 
                 <button title="Pause / Unpause" class="generic-hover"
@@ -99,26 +110,171 @@
                 </div>
             </x-card>
         </div>
+
+        <!-- Maintenance & Sessions Section -->
+        <div class="mt-8 space-y-6">
+            
+
+            <!-- Active Sessions -->
+            <x-card v-if="wbConfig.config.sessionManagementEnabled" class="bg-neutral-800/20 backdrop-brightness-150 backdrop-blur-xl">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-xl font-semibold flex items-center gap-2">
+                        <Icon class="size-6 text-purple-400" icon="mdi:monitor-multiple"></Icon>
+                        Active Sessions
+                    </h3>
+                    <div class="flex items-center gap-2">
+                        <div class="text-sm text-neutral-400">
+                            {{ sessionStats.totalSessions }} active • {{ sessionStats.totalMemoryUsage }}MB • {{ sessionStats.totalCpuUsage }}% CPU
+                        </div>
+                        <x-button @click="refreshSessions" :disabled="isRefreshingSessions" class="!p-2 !min-w-0">
+                            <Icon class="size-4" :icon="isRefreshingSessions ? 'mdi:loading' : 'mdi:refresh'" :class="{ 'animate-spin': isRefreshingSessions }"></Icon>
+                        </x-button>
+                    </div>
+                </div>
+
+                <!-- Session List -->
+                <div v-if="xfreerdpSessions.length === 0" class="text-center py-6 text-neutral-400">
+                    <Icon class="size-12 mb-2" icon="mdi:monitor-off"></Icon>
+                    <p>No active XFreeRDP sessions</p>
+                </div>
+
+                <div v-else class="space-y-2">
+                    <div v-for="session in xfreerdpSessions" :key="session.pid" 
+                         class="flex items-center justify-between p-3 bg-neutral-800/50 rounded-lg">
+                        
+                        <div class="flex items-center gap-3">
+                            <Icon class="size-5 text-purple-400" icon="mdi:application"></Icon>
+                            <div>
+                                <div class="font-medium">{{ session.appPath }}</div>
+                                <div class="text-xs text-neutral-400">
+                                    PID {{ session.pid }} • {{ session.memoryUsage }}MB • {{ session.cpuUsage }}% CPU
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <div class="text-xs text-neutral-400">{{ session.startTime }}</div>
+                            <x-button @click="killSession(session.pid)" class="!p-2 !min-w-0 text-red-400 hover:text-red-300">
+                                <Icon class="size-4" icon="mdi:close"></Icon>
+                            </x-button>
+                        </div>
+                    </div>
+
+                    <!-- Kill All Button -->
+                    <div v-if="xfreerdpSessions.length > 1" class="pt-2 border-t border-neutral-700">
+                        <x-button @click="killAllSessions" class="text-red-400 hover:text-red-300">
+                            <Icon class="size-4" icon="mdi:close-circle-multiple"></Icon>
+                            <x-label>Kill All Sessions</x-label>
+                        </x-button>
+                    </div>
+                </div>
+            </x-card>
+
+        </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, computed } from 'vue';
 import { ContainerStatus, Winboat } from '../lib/winboat';
 import { type ComposeConfig } from '../../types';
 import { WINDOWS_VERSIONS } from '../lib/constants';
 import { Icon } from '@iconify/vue';
 import { capitalizeFirstLetter } from '../utils/capitalize';
+import { SessionManager, type XFreerdpSession } from '../utils/sessionManager';
+import { WinboatConfig } from '../lib/config';
 
 const winboat = new Winboat();
+const wbConfig = new WinboatConfig();
 const compose = ref<ComposeConfig | null>(null);
 const wallpaper = ref("");
+
+// Reactive uptime that updates every second
+const uptimeTimer = ref(Date.now());
+const uptime = computed(() => {
+    uptimeTimer.value; // This makes the computed depend on the timer
+    return winboat.getUptime();
+});
+
+// Container uptime
+const containerUptime = ref<string>("");
+
+
+// Session Management
+const sessionManager = new SessionManager();
+const xfreerdpSessions = ref<XFreerdpSession[]>([]);
+const sessionStats = ref({ totalSessions: 0, totalMemoryUsage: 0, totalCpuUsage: 0 });
+const isRefreshingSessions = ref(false);
+
+
+// Session Management Functions
+const refreshSessions = async () => {
+    if (!wbConfig.config.sessionManagementEnabled) {
+        return; // Skip if session management is disabled
+    }
+    
+    try {
+        isRefreshingSessions.value = true;
+        xfreerdpSessions.value = await sessionManager.getRunningXFreerdpSessions();
+        sessionStats.value = await sessionManager.getSessionStats();
+        console.log('Sessions refreshed:', xfreerdpSessions.value);
+    } catch (error) {
+        console.error('Error refreshing sessions:', error);
+    } finally {
+        isRefreshingSessions.value = false;
+    }
+};
+
+const killSession = async (pid: number) => {
+    try {
+        const success = await sessionManager.killSession(pid);
+        if (success) {
+            await refreshSessions();
+        }
+    } catch (error) {
+        console.error('Error killing session:', error);
+    }
+};
+
+const killAllSessions = async () => {
+    try {
+        const result = await sessionManager.killAllSessions();
+        console.log(`Killed ${result.killed} sessions, ${result.failed} failed`);
+        await refreshSessions();
+    } catch (error) {
+        console.error('Error killing all sessions:', error);
+    }
+};
 
 onMounted(async () => {
     compose.value = winboat.parseCompose();
     wallpaper.value = compose.value.services.windows.environment.VERSION.includes("11")
         ? "./img/wallpaper/win11.webp"
         : "./img/wallpaper/win10.webp";
+    
+    // Get initial container uptime if running
+    if (winboat.containerStatus.value === ContainerStatus.Running) {
+        containerUptime.value = await winboat.getContainerUptime();
+    }
+    
+    // Initialize sessions if enabled
+    if (wbConfig.config.sessionManagementEnabled) {
+        await refreshSessions();
+        
+        // Set up periodic refresh for sessions
+        setInterval(refreshSessions, 5000); // Refresh every 5 seconds
+    }
+    
+    // Set up uptime timer refresh (every second)
+    setInterval(async () => {
+        uptimeTimer.value = Date.now();
+        // Also update container uptime if running
+        if (winboat.containerStatus.value === ContainerStatus.Running) {
+            containerUptime.value = await winboat.getContainerUptime();
+        } else {
+            containerUptime.value = "";
+        }
+    }, 1000);
 })
 
 const chartOptions = ref({

@@ -151,11 +151,10 @@ CONTAINER_IP="localhost"
 
 # Launch the Windows app via FreeRDP RemoteApp
 # Using modern format: /app:program:"path",name:"name"
-# Pass password via stdin for better security
-echo "$PASSWORD" | exec xfreerdp3 \\
+exec xfreerdp3 \\
     /v:$CONTAINER_IP:3389 \\
     /u:$USERNAME \\
-    /from-stdin \\
+    /p:$PASSWORD \\
     /app:program:"${app.Path}",name:"${app.Name}" \\
     /wm-class:"winboat-${sanitizedName}" \\
     /cert:ignore \\
